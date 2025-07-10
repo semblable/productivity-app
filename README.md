@@ -1,4 +1,4 @@
-# My Local Planner
+# Productivity App
 
 ## Description
 Personal productivity application for task management, goal tracking, and time optimization. Combines calendar scheduling, pomodoro technique, note-taking, and project management in a single offline-capable interface.
@@ -19,11 +19,11 @@ Personal productivity application for task management, goal tracking, and time o
 ## Installation
 1. Clone the repository:
 ```bash
-git clone https://github.com/your-username/my-local-planner.git
+git clone https://github.com/semblable/productivity-app.git
 ```
 2. Navigate to project directory:
 ```bash
-cd my-local-planner-app
+cd productivity-app
 ```
 3. Install dependencies:
 ```bash
@@ -62,7 +62,7 @@ npm start
 - **State Management**: React Context
 - **Icons**: SVG-based custom components
 - **Notifications**: Web Notifications API
-- **Build Tools**: Vite + PostCSS
+- **Build Tools**: Create React App (react-scripts) + PostCSS
 
 ## Refactoring
 - **Routing**: The routing logic has been extracted from the main `App` component into a dedicated `AppRoutes.jsx` component for better separation of concerns.
