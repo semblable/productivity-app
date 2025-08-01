@@ -6,27 +6,38 @@ import { db } from './db';
  * @param {Array} tree Root tasks array
  * @param {number} projectId Project to assign to tasks
  */
-export const bulkAddTasks = async (tree = [], projectId) => {
+/**
+ * Recursively add a tree of tasks to Dexie.
+ * Optionally assign all tasks to a folder.
+ * @param {Array} tree Hierarchical task array
+ * @param {number} projectId Project id to assign tasks
+ * @param {number|null} folderId Folder id to assign tasks (nullable)
+ */
+export const bulkAddTasks = async (tree = [], projectId, folderId = null) => {
   if (!Array.isArray(tree) || tree.length === 0) return;
 
-  await db.transaction('rw', db.tasks, async () => {
-    const addNode = async (node, parentId = null) => {
-      const id = await db.tasks.add({
-        text: node.text || '',
-        projectId,
-        parentId,
-        completed: false,
-        createdAt: new Date(),
-      });
-      if (Array.isArray(node.children)) {
-        for (const child of node.children) {
-          await addNode(child, id);
-        }
-      }
+  // Helper to build a sub-task object (recursively)
+  const buildSubtask = (node) => {
+    const id = Date.now() + Math.random(); // simple unique id for client-side use
+    return {
+      id,
+      text: node.text || '',
+      completed: false,
+      subtasks: Array.isArray(node.children) ? node.children.map(buildSubtask) : [],
     };
+  };
 
-    for (const root of tree) {
-      await addNode(root, null);
-    }
-  });
+  // Convert root nodes into task rows for Dexie. Sub-tasks are embedded, not separate rows.
+  const tasksToInsert = tree.map((node, idx) => ({
+    text: node.text || '',
+    projectId,
+    folderId,
+    order: idx,
+    parentId: null,
+    completed: false,
+    createdAt: new Date(),
+    subtasks: Array.isArray(node.children) ? node.children.map(buildSubtask) : [],
+  }));
+
+  await db.tasks.bulkAdd(tasksToInsert);
 }; 

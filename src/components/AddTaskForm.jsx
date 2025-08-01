@@ -1,8 +1,8 @@
 import { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { RecurrenceModal } from './RecurrenceModal';
 
 const priorityLevels = {
@@ -18,12 +18,14 @@ export const AddTaskForm = ({ projects }) => {
    const [projectId, setProjectId] = useState('');
    const [priority, setPriority] = useState(0);
    const [recurrence, setRecurrence] = useState('none');
+   const [folderId, setFolderId] = useState('');
    const [isHabit, setIsHabit] = useState(false);
    const [goalId, setGoalId] = useState('none');
    const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
    const [rrule, setRrule] = useState(null);
 
    const goals = useLiveQuery(() => db.goals.toArray(), []);
+   const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: Number(projectId) }).toArray() : [], [projectId]);
 
    const addTask = async (e) => {
       e.preventDefault();
@@ -39,8 +41,10 @@ export const AddTaskForm = ({ projects }) => {
          completed: false,
          createdAt: new Date(),
          dueDate: dueDate ? new Date(dueDate) : null,
-         projectId: finalProjectId,
-         priority: Number(priority),
+                 projectId: finalProjectId,
+        folderId: folderId ? Number(folderId) : null,
+        order: 0,
+        priority: Number(priority),
          goalId: goalId === 'none' ? null : Number(goalId),
          rrule: rruleString,
          parentId: null,
@@ -65,6 +69,7 @@ export const AddTaskForm = ({ projects }) => {
        setRecurrence('none');
        setIsHabit(false);
        setGoalId('none');
+       setFolderId('');
        setProjectId('');
        toast.success("Task added!");
      } catch (error) {
@@ -89,6 +94,12 @@ export const AddTaskForm = ({ projects }) => {
             <option value="">No Project</option>
             {projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        {projectId && folders && (
+            <select value={folderId} onChange={e => setFolderId(e.target.value)} className={inputClasses}>
+                <option value="">No Folder</option>
+                {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+        )}
         <select value={priority} onChange={e => setPriority(e.target.value)} className={inputClasses}>
             {Object.entries(priorityLevels).map(([level, name]) => <option key={level} value={level}>{name}</option>)}
         </select>

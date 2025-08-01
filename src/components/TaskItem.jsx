@@ -1,5 +1,8 @@
 import { useState, useMemo } from 'react';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { db } from '../db/db';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { toast } from 'react-toastify';
 import { ChevronDown, Edit, Save, Trash2, Zap, Plus, Sparkles, Loader2 } from 'lucide-react';
 import { generateSubTasks } from '../api/geminiClient';
@@ -11,13 +14,32 @@ const priorityStyles = {
     3: 'border-l-4 border-red-500',   // High
 };
 
-export const TaskItem = ({ task, project, onStartFocus, allProjects }) => {
+export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(task.text);
     const [editProjectId, setEditProjectId] = useState(task.projectId);
     const [isExpanded, setIsExpanded] = useState(false);
     const [newSubtaskText, setNewSubtaskText] = useState('');
     const [isSlicing, setIsSlicing] = useState(false);
+
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging,
+    } = useSortable({ 
+        id: `task-${task.id}`,
+        disabled: isOverlay, // Disable sortable for the overlay clone
+    });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition: isDragging ? 'none' : transition, // No transition when dragging
+    };
+
+    const folder = useLiveQuery(() => task.folderId ? db.folders.get(task.folderId) : null, [task.folderId]);
 
     const subtasks = useMemo(() => task.subtasks || [], [task.subtasks]);
     const completedSubtasks = useMemo(() => subtasks.filter(st => st.completed).length, [subtasks]);
@@ -153,10 +175,14 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects }) => {
    const priorityClass = priorityStyles[task.priority] || 'border-l-4 border-transparent';
 
    const inputClasses = "p-1 rounded-md bg-secondary border border-border text-foreground focus:ring-2 focus:ring-ring focus:outline-none";
-   const buttonClasses = "text-muted-foreground hover:text-foreground transition-colors";
+       const buttonClasses = "text-muted-foreground hover:text-foreground transition-colors";
+    
+    const containerClasses = isOverlay
+        ? 'rounded-lg bg-card border-2 border-primary shadow-2xl transform scale-105'
+        : `rounded-lg cursor-grab active:cursor-grabbing transition-all duration-300 bg-card border border-border shadow-sm ${task.completed ? 'opacity-60' : ''} ${priorityClass} ${isDragging ? 'opacity-30' : ''}`;
 
-   return (
-    <div className={`rounded-lg transition-all duration-300 bg-card border border-border shadow-sm ${task.completed ? 'opacity-60' : ''} ${priorityClass}`}>
+    return (
+        <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={containerClasses}>
         <div className="flex items-center justify-between gap-2 p-3">
             <div className="flex items-center gap-3 flex-grow">
                 <input
@@ -213,6 +239,12 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects }) => {
                     <div className="flex items-center gap-2">
                        <span className="w-3 h-3 rounded-full" style={{backgroundColor: project.color || 'var(--muted)' }}></span>
                        <span className="font-semibold text-muted-foreground">{project.name}</span>
+                    </div>
+                )}
+                {folder && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <span className="material-symbols-rounded text-sm">folder</span>
+                        <span>{folder.name}</span>
                     </div>
                 )}
                 {task.goalId && (

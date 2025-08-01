@@ -23,11 +23,15 @@ const safeJSONParse = (text) => {
   }
 };
 
-const normalizeTree = (nodes=[]) => nodes.map(n => {
-  const text = n.text || n.name || '';
-  const children = normalizeTree(n.children || n.subtasks || []);
-  return { text, children };
-});
+const normalizeTree = (nodes = []) => {
+  const processNode = (node) => {
+    const text = node.text || node.name || '';
+    const children = (node.children || node.subtasks || []).map(processNode);
+    return { text, children };
+  };
+
+  return nodes.map(processNode);
+};
 
 export const generateTasks = async (noteContent, depth, { enhance = false, maxRetries = 2, model = 'gemini-2.5-flash-preview-05-20' } = {}) => {
   const apiKey = getEnvApiKey();
@@ -190,4 +194,4 @@ export const generateSubTasks = async (taskTitle, { maxRetries = 2, model = 'gem
   }
 
   throw lastError || new Error('Failed to generate sub-tasks after multiple retries.');
-}; 
+};

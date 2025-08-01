@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useGeminiTaskify } from '../hooks/useGeminiTaskify';
 import { bulkAddTasks } from '../db/bulkAddTasks';
 import { db } from '../db/db';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { toast } from 'react-toastify';
 
 export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
@@ -10,11 +10,19 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
   const defaultProjectId = projects?.[0]?.id;
 
   const [projectId, setProjectId] = useState(defaultProjectId);
+  const [folderId, setFolderId] = useState('');
   const [enhance, setEnhance] = useState(false);
+
+  const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: Number(projectId) }).toArray() : [], [projectId]);
 
   useEffect(() => {
     if (defaultProjectId) setProjectId(defaultProjectId);
   }, [defaultProjectId]);
+
+  // Reset folder selection when project changes
+  useEffect(() => {
+    setFolderId('');
+  }, [projectId]);
 
   const { tasksTree, isLoading, error, run, reset } = useGeminiTaskify();
 
@@ -27,7 +35,7 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
 
   const handleImport = async () => {
     try {
-      await bulkAddTasks(tasksTree, Number(projectId));
+      await bulkAddTasks(tasksTree, Number(projectId), folderId ? Number(folderId) : null);
       toast.success('Tasks imported successfully');
       onClose();
     } catch (err) {
@@ -59,6 +67,21 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {projectId && folders && (
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-muted-foreground">Folder</span>
+              <select
+                value={folderId}
+                onChange={(e) => setFolderId(e.target.value)}
+                className="p-2 rounded-md bg-secondary border border-border"
+              >
+                <option value="">No Folder</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
                 ))}
               </select>
             </label>

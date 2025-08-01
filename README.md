@@ -9,6 +9,11 @@ Personal productivity application for task management, goal tracking, and time o
 - **Pomodoro Timer**: Focus sessions with configurable work/break intervals
 - **Task Management**: Create, prioritize, and track todo items
 - **Project Organization**: Group tasks into projects with progress tracking
+- **Task Folders**:
+  - Create folders within projects to group related tasks.
+  - Drag-and-drop tasks to move them between folders or to reorder them.
+  - Folders display progress bars and completion counts.
+  - Delete folders with an option to either delete the tasks within them or move them to "Ungrouped."
 - **Time Tracking**: Log and categorize time spent on activities
 - **Notes System**: Markdown-enabled note taking with categorization
 - **Weekly Reviews**: Reflection and planning tools

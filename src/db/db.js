@@ -97,6 +97,19 @@ db.version(19).stores({
   tasks: '++id, text, projectId, completed, createdAt, goalId, parentId'
 });
 
+// Version 20 - Add folders table and folderId/order fields to tasks
+// Also add 'order' field for manual ordering via drag-and-drop.
+db.version(20).stores({
+  tasks: '++id, text, projectId, completed, createdAt, goalId, parentId, folderId, order',
+  folders: '++id, name, projectId, createdAt, color'
+}).upgrade(tx => {
+  // Ensure existing task rows have default folderId and order
+  return tx.table('tasks').toCollection().modify(task => {
+    if (!('folderId' in task)) task.folderId = null;
+    if (!('order' in task)) task.order = 0;
+  });
+});
+
 // No migration needed; goalId defaults to null for existing rows.
 
 // --- Compatibility alias ---
