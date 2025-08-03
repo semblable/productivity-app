@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../db/db';
+import { durationToSeconds, formatDuration } from '../utils/duration';
 import toast from 'react-hot-toast';
 
 export const TimeEntryItem = ({ entry, project, projects }) => {
@@ -10,31 +11,7 @@ export const TimeEntryItem = ({ entry, project, projects }) => {
     /* --------------------------------------------------------------------- */
     /* Helpers                                                               */
     /* --------------------------------------------------------------------- */
-    const formatDuration = (d) => {
-        if (d === undefined || d === null) return '00:00:00';
-        const h = Math.floor(d / 3600).toString().padStart(2, '0');
-        const m = Math.floor((d % 3600) / 60).toString().padStart(2, '0');
-        const s = (d % 60).toString().padStart(2, '0');
-        return `${h}:${m}:${s}`;
-    };
 
-    const durationToSeconds = (input) => {
-        if (!input) return 0;
-        const parts = input.split(':').map(Number);
-        if (parts.some(isNaN)) return 0;
-
-        if (parts.length === 3) {
-            // hh:mm:ss
-            return parts[0] * 3600 + parts[1] * 60 + parts[2];
-        } else if (parts.length === 2) {
-            // hh:mm
-            return parts[0] * 3600 + parts[1] * 60;
-        } else if (parts.length === 1) {
-            // hours only
-            return parts[0] * 3600;
-        }
-        return 0;
-    };
 
     const formatDateForInput = (date) => {
         try {

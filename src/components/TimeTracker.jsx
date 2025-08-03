@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { durationToSeconds, formatDuration } from '../utils/duration';
 import { db, getDefaultProject } from '../db/db';
 import toast from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -120,24 +121,7 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
         setManualDurationInput(e.target.value);
     };
 
-    // Helper to convert a duration string (e.g., "2", "2:30", "1:15:45") into seconds
-    const durationToSeconds = (input) => {
-        if (!input) return 0;
-        const parts = input.split(':').map(Number);
-        if (parts.some(isNaN)) return 0;
 
-        if (parts.length === 3) {
-            // hh:mm:ss
-            return parts[0] * 3600 + parts[1] * 60 + parts[2];
-        } else if (parts.length === 2) {
-            // hh:mm (treat first part as hours)
-            return parts[0] * 3600 + parts[1] * 60;
-        } else if (parts.length === 1) {
-            // hours only
-            return parts[0] * 3600;
-        }
-        return 0;
-    };
 
     const handleDurationBlur = () => {
         const totalSeconds = durationToSeconds(manualDurationInput.trim());
@@ -212,12 +196,7 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
         setActiveTimer(null);
     };
     
-    const formatDuration = (d) => {
-        const h = Math.floor(d / 3600).toString().padStart(2, '0');
-        const m = Math.floor((d % 3600) / 60).toString().padStart(2, '0');
-        const s = (d % 60).toString().padStart(2, '0');
-        return `${h}:${m}:${s}`;
-    };
+
     
     // Format a Date object as "YYYY-MM-DDTHH:MM" in LOCAL time so it works correctly with
     // the HTML datetime-local input without timezone shifts.

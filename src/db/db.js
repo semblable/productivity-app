@@ -125,6 +125,12 @@ db.version(21).stores({
     });
 });
 
+// Version 22 - Add compound index [habitId+date] to habit_completions for faster look-ups
+// No data migration required.
+db.version(22).stores({
+    habit_completions: '++id, habitId, date, [habitId+date]'
+});
+
 // --- Compatibility alias ---
 // Older components may still reference db.timeGoals. Point it to the new goals table
 db.timeGoals = db.table('goals');
