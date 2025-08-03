@@ -112,6 +112,19 @@ db.version(20).stores({
 
 // No migration needed; goalId defaults to null for existing rows.
 
+// Version 21 - Rename streakFriezes to streakFreezes
+// Keep both fields indexed for backward compatibility but migrate data to the new field.
+db.version(21).stores({
+    habits: '++id, taskId, name, startDate, streak, bestStreak, lastCompletionDate, streakFriezes, streakFreezes, lastStreakMilestone, projectId'
+}).upgrade(async (tx) => {
+    const habitsTable = tx.table('habits');
+    await habitsTable.toCollection().modify(habit => {
+        if (habit.streakFriezes != null && habit.streakFreezes == null) {
+            habit.streakFreezes = habit.streakFriezes;
+        }
+    });
+});
+
 // --- Compatibility alias ---
 // Older components may still reference db.timeGoals. Point it to the new goals table
 db.timeGoals = db.table('goals');

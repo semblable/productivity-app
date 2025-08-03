@@ -5,17 +5,23 @@ import { db } from './db';
  * to their actualHours, updating their progress.
  * @param {number} projectId The ID of the project.
  * @param {number} durationInSeconds The duration to add, in seconds.
+ * @param {number|null} goalToExclude Optional goal ID to exclude from updates (prevents double-counting).
  */
-export const logTimeToProjectGoals = async (projectId, durationInSeconds) => {
+export const logTimeToProjectGoals = async (projectId, durationInSeconds, goalToExclude = null) => {
     if (!projectId || durationInSeconds <= 0) return;
 
-    console.log(`[TimeUtil] Checking for goals linked to projectId: ${projectId}`);
+    // console.log(`[TimeUtil] Checking for goals linked to projectId: ${projectId}, excluding goal: ${goalToExclude}`);
 
     try {
-        const linkedGoals = await db.goals.where({ projectId: Number(projectId) }).toArray();
+        let linkedGoals = await db.goals.where({ projectId: Number(projectId) }).toArray();
+
+        if (goalToExclude) {
+            // Ensure type consistency for comparison (both should be numbers)
+            linkedGoals = linkedGoals.filter(g => g.id !== Number(goalToExclude));
+        }
 
         if (linkedGoals.length > 0) {
-            console.log(`[TimeUtil] Found ${linkedGoals.length} linked goals. Updating...`);
+            // console.log(`[TimeUtil] Found ${linkedGoals.length} linked goals to update.`);
             const hoursToAdd = durationInSeconds / 3600;
 
             for (const goal of linkedGoals) {
@@ -28,10 +34,10 @@ export const logTimeToProjectGoals = async (projectId, durationInSeconds) => {
                     actualHours: newActualHours,
                     progress: progress,
                 });
-                console.log(`[TimeUtil] Updated goal "${goal.description}" with ${hoursToAdd.toFixed(2)} hours.`);
+                // console.log(`[TimeUtil] Updated goal "${goal.description}" with ${hoursToAdd.toFixed(2)} hours.`);
             }
         } else {
-            console.log(`[TimeUtil] No goals linked to project ${projectId}.`);
+            // console.log(`[TimeUtil] No goals linked to project ${projectId} to update.`);
         }
     } catch (error) {
         console.error("Failed to log time to project goals:", error);

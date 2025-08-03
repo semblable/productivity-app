@@ -45,7 +45,7 @@ const PomodoroView = () => {
         const handleMessage = (event) => {
             const { type, ...newState } = event.data;
             if (type === 'status') {
-                console.log('[PomodoroView] status message', newState);
+                // console.log('[PomodoroView] status message', newState);
                 setPomodoroState(currentState => ({
                     ...currentState,
                     status: newState.timerState, // Note the property name change
@@ -105,7 +105,7 @@ const PomodoroView = () => {
 
     // Immediately update local state when changing modes, so UI responds even if the service worker hasn't started yet.
     const changeMode = useCallback((newMode) => {
-        console.log('[PomodoroView] changeMode requested', newMode);
+        // console.log('[PomodoroView] changeMode requested', newMode);
         setPomodoroState(prev => ({
             ...prev,
             mode: newMode,
@@ -173,13 +173,13 @@ const PomodoroView = () => {
     // Tell the service worker to start or pause the timer.
     const toggleTimer = () => {
         const command = status === 'running' ? 'pause' : 'start';
-        console.log('[PomodoroView] toggleTimer sending', command);
+        // console.log('[PomodoroView] toggleTimer sending', command);
         navigator.serviceWorker.controller?.postMessage({ command });
     };
 
     // Tell the service worker to reset the timer for the current mode.
     const handleReset = useCallback(() => {
-        console.log('[PomodoroView] handleReset');
+        // console.log('[PomodoroView] handleReset');
         navigator.serviceWorker.controller?.postMessage({ command: 'reset', data: { mode }});
     }, [mode]);
 

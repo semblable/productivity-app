@@ -164,28 +164,51 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
         const endTime = Date.now();
         const finalDuration = Math.floor((endTime - activeTimer.startTime) / 1000);
 
-        if (activeTimer.goalId) {
-            onStopTimer(finalDuration);
-            toast.success("Time logged to your goal!");
-        } else {
-            try {
-                await db.timeEntries.add({
-                    description: activeTimer.description,
-                    projectId: activeTimer.projectId,
-                    startTime: new Date(activeTimer.startTime),
-                    endTime: new Date(endTime),
-                    duration: finalDuration,
-                    eventId: trackedEventId,
-                });
-                if (activeTimer.projectId) {
-                    await logTimeToProjectGoals(activeTimer.projectId, finalDuration);
-                }
-                toast.success("Time entry saved!");
-            } catch (error) {
-                console.error("Failed to save time entry:", error);
-                toast.error("Failed to save time entry.");
+        // Build the time entry object that will be persisted regardless of whether this
+        // timer is linked to a goal or not. Linking the goalId allows us to keep an
+        // audit trail of the work that contributed to the goal while still showing up
+        // in the generic time-entry list.
+        const entry = {
+            description: activeTimer.description,
+            projectId: activeTimer.projectId,
+            goalId: activeTimer.goalId || null,
+            startTime: new Date(activeTimer.startTime),
+            endTime: new Date(endTime),
+            duration: finalDuration,
+            eventId: trackedEventId,
+        };
+
+        try {
+            // Persist the entry so it shows up in the history list.
+            await db.timeEntries.add(entry);
+
+            // If the entry is associated with a project, also roll the time up to any
+            // project-linked goals so their progress bars stay accurate.
+            if (activeTimer.projectId) {
+                // When logging time to a project, we must exclude the specific goal
+                // that this timer was for, otherwise it would get the time added
+                // twice (once directly below, and once as part of the project).
+                await logTimeToProjectGoals(
+                    activeTimer.projectId,
+                    finalDuration,
+                    activeTimer.goalId
+                );
             }
+
+            // If this timer was started for a specific time-based goal, update that
+            // goal's accumulated hours and progress via the callback provided by the
+            // parent component.
+            if (activeTimer.goalId) {
+                onStopTimer(finalDuration);
+                toast.success("Time logged!");
+            } else {
+                toast.success("Time entry saved!");
+            }
+        } catch (error) {
+            console.error("Failed to save time entry:", error);
+            toast.error("Failed to save time entry.");
         }
+
         setActiveTimer(null);
     };
     

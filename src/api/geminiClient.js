@@ -1,9 +1,9 @@
 const getEnvApiKey = () => {
-  console.log('Environment variables:', {
+  /* console.log('Environment variables:', {
     REACT_APP_GEMINI_API_KEY: process.env.REACT_APP_GEMINI_API_KEY,
     NODE_ENV: process.env.NODE_ENV,
     allReactAppVars: Object.keys(process.env).filter(key => key.startsWith('REACT_APP_'))
-  });
+  }); */
   return process.env.REACT_APP_GEMINI_API_KEY;
 };
 
@@ -72,8 +72,8 @@ export const generateTasks = async (noteContent, depth, { enhance = false, maxRe
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      console.log('Making request to:', ENDPOINT);
-      console.log('Request body:', JSON.stringify(requestBody, null, 2));
+      // console.log('Making request to:', ENDPOINT);
+      // console.log('Request body:', JSON.stringify(requestBody, null, 2));
 
       const res = await fetch(`${ENDPOINT}?key=${apiKey}`, {
         method: 'POST',
@@ -83,17 +83,17 @@ export const generateTasks = async (noteContent, depth, { enhance = false, maxRe
         body: JSON.stringify(requestBody),
       });
 
-      console.log('Response status:', res.status);
+      // console.log('Response status:', res.status);
       
       if (!res.ok) {
         const errorText = await res.text();
-        console.log('Error response:', errorText);
+        // console.log('Error response:', errorText);
         lastError = new Error(`Gemini API error: ${res.status} - ${errorText}`);
         continue;
       }
 
       const data = await res.json();
-      console.log('Response data:', data);
+      // console.log('Response data:', data);
       
       const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
@@ -102,7 +102,7 @@ export const generateTasks = async (noteContent, depth, { enhance = false, maxRe
         continue;
       }
 
-      console.log('Raw response text:', responseText);
+      // console.log('Raw response text:', responseText);
 
       const json = safeJSONParse(responseText.trim());
       if (json && Array.isArray(json) && json.length > 0) {

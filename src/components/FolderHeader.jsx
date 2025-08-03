@@ -38,8 +38,11 @@ export const FolderHeader = ({ folder, children, className='' }) => {
 
   return (
     <div ref={setNodeRef} className={`rounded-lg border border-border bg-card shadow-sm ${isOver ? 'ring-2 ring-primary' : ''} ${className}`}>
-      <button
-        className="w-full flex items-center justify-between p-3 text-left"
+      <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setIsOpen(prev => !prev); } }}
+        className="w-full flex items-center justify-between p-3 text-left cursor-pointer"
         onClick={() => setIsOpen(prev => !prev)}
       >
         <div className="flex items-center gap-2">
@@ -52,7 +55,7 @@ export const FolderHeader = ({ folder, children, className='' }) => {
             <Trash2 size={16} />
           </button>
         </div>
-      </button>
+      </div>
       {/* Progress bar */}
       {total > 0 && (
         <div className="h-1 w-full bg-secondary">

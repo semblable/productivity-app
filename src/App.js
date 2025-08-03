@@ -114,7 +114,7 @@ function AppLayout() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [navigate]);
+    }, [navigate, setState]);
 
     const handleStartGoalTimer = (goal) => {
         setState({ activeGoalId: goal.id });

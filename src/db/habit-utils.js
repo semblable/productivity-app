@@ -38,11 +38,11 @@ async function _recalculateAndUpdateHabit(habitId) {
 
     // Award streak freezes - this logic can be kept simple as it only depends on current streak
     const milestone = Math.floor(currentStreak / 14);
-    let newFriezes = habit.streakFriezes || 0;
+    let newFreezes = habit.streakFreezes || 0;
     let newMilestone = habit.lastStreakMilestone || 0;
     if (milestone > 0 && milestone > newMilestone) {
         const awardedFriezes = milestone - newMilestone;
-        newFriezes += awardedFriezes;
+        newFreezes += awardedFriezes;
         newMilestone = milestone;
         toast.success(`You earned ${awardedFriezes} streak freeze(s)!`);
     }
@@ -51,7 +51,7 @@ async function _recalculateAndUpdateHabit(habitId) {
         streak: currentStreak,
         bestStreak: newBestStreak,
         lastCompletionDate: lastCompletionDate,
-        streakFriezes: newFriezes, // This part might need more complex logic if freezes can be spent
+        streakFreezes: newFreezes, // This part might need more complex logic if freezes can be spent
         lastStreakMilestone: newMilestone
     });
 
@@ -149,9 +149,9 @@ export const checkBrokenStreaks = async () => {
         lastCompletion.setHours(0,0,0,0);
 
         if (differenceInCalendarDays(today, lastCompletion) > 1) {
-            if (habit.streakFriezes > 0) {
+            if (habit.streakFreezes > 0) {
                 await db.habits.update(habit.id, { 
-                    streakFriezes: habit.streakFriezes - 1,
+                    streakFreezes: habit.streakFreezes - 1,
                     lastCompletionDate: subDays(today, 1) // To "use" the freeze
                 });
                 toast.info(`A streak freeze was used to save your '${habit.name}' streak!`);

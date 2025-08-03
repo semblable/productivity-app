@@ -22,12 +22,12 @@ export const CalendarView = ({ date, view, onNavigate, onView, onSelectSlot, onS
     const events = useLiveQuery(() => db.events.toArray(), []);
     const projects = useLiveQuery(() => db.projects.toArray(), []);
 
-    console.log('Loaded events from DB:', events);
+    // console.log('Loaded events from DB:', events);
     const projectMap = projects?.reduce((map, proj) => {
         map[proj.id] = proj;
         return map;
     }, {}) || {};
-    console.log('Project map:', projectMap);
+    // console.log('Project map:', projectMap);
     
     const formattedEvents = events?.map(event => ({
         title: event.title,
@@ -35,7 +35,7 @@ export const CalendarView = ({ date, view, onNavigate, onView, onSelectSlot, onS
         end: new Date(event.endTime),
         resource: { ...event, project: projectMap[event.projectId] },
     })) || [];
-    console.log('Formatted events for calendar:', formattedEvents);
+    // console.log('Formatted events for calendar:', formattedEvents);
     
     const eventPropGetter = (event) => {
         const project = projectMap[event.resource.projectId];

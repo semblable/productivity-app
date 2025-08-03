@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
 
-export const TimeEntryItem = ({ entry, project }) => {
+export const TimeEntryItem = ({ entry, project, projects }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editDescription, setEditDescription] = useState(entry.description);
-    const [startTime, setStartTime] = useState(entry.startTime);
-    const [endTime, setEndTime] = useState(entry.endTime);
-    
+    const [editProjectId, setEditProjectId] = useState(entry.projectId);
+
+    /* --------------------------------------------------------------------- */
+    /* Helpers                                                               */
+    /* --------------------------------------------------------------------- */
     const formatDuration = (d) => {
         if (d === undefined || d === null) return '00:00:00';
         const h = Math.floor(d / 3600).toString().padStart(2, '0');
@@ -16,53 +18,103 @@ export const TimeEntryItem = ({ entry, project }) => {
         return `${h}:${m}:${s}`;
     };
 
-    const formatTime = (date) => {
-        try {
-            const d = new Date(date);
-            return isNaN(d.getTime()) ? 'Invalid Date' : d.toLocaleTimeString([], { 
-                hour: '2-digit', 
-                minute: '2-digit' 
-            });
-        } catch {
-            return 'Invalid Date';
+    const durationToSeconds = (input) => {
+        if (!input) return 0;
+        const parts = input.split(':').map(Number);
+        if (parts.some(isNaN)) return 0;
+
+        if (parts.length === 3) {
+            // hh:mm:ss
+            return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        } else if (parts.length === 2) {
+            // hh:mm
+            return parts[0] * 3600 + parts[1] * 60;
+        } else if (parts.length === 1) {
+            // hours only
+            return parts[0] * 3600;
         }
+        return 0;
     };
 
-    const formatForInput = (date) => {
+    const formatDateForInput = (date) => {
         try {
             const d = new Date(date);
-            return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16);
+            if (isNaN(d.getTime())) return '';
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         } catch {
             return '';
         }
     };
 
+    const formatTimeForInput = (date) => {
+        try {
+            const d = new Date(date);
+            if (isNaN(d.getTime())) return '';
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            return `${hours}:${minutes}`;
+        } catch {
+            return '';
+        }
+    };
+
+    const combineDateTime = (dateStr, timeStr) => {
+        // Combine without timezone shift – both inputs are local values.
+        return new Date(`${dateStr}T${timeStr}`);
+    };
+
+    /* --------------------------------------------------------------------- */
+    /* Local state derived from entry                                         */
+    /* --------------------------------------------------------------------- */
+    const [startDate, setStartDate] = useState(formatDateForInput(entry.startTime));
+    const [startTimeStr, setStartTimeStr] = useState(formatTimeForInput(entry.startTime));
+    const [durationInput, setDurationInput] = useState(formatDuration(entry.duration));
+    const [endTime, setEndTime] = useState(entry.endTime);
+
+    // Keep end time in sync when the user changes start date/time or duration
+    useEffect(() => {
+        const start = combineDateTime(startDate, startTimeStr);
+        if (isNaN(start.getTime())) {
+            setEndTime(null);
+            return;
+        }
+        const newEnd = new Date(start.getTime() + durationToSeconds(durationInput) * 1000);
+        setEndTime(newEnd);
+    }, [startDate, startTimeStr, durationInput]);
+
+    /* --------------------------------------------------------------------- */
+    /* Saving / Deleting                                                     */
+    /* --------------------------------------------------------------------- */
     const handleSave = async () => {
         try {
-            const start = new Date(startTime);
-            const end = new Date(endTime);
-            
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-                toast.error('Invalid date values');
+            const start = combineDateTime(startDate, startTimeStr);
+            if (isNaN(start.getTime())) {
+                toast.error('Invalid start date/time');
                 return;
             }
-            
-            if (end <= start) {
-                toast.error('End time must be after start time');
+
+            const durationSeconds = durationToSeconds(durationInput.trim());
+            if (durationSeconds <= 0) {
+                toast.error('Duration must be greater than 0');
                 return;
             }
-            
-            const durationSeconds = Math.floor((end - start) / 1000);
-            
+
+            const end = new Date(start.getTime() + durationSeconds * 1000);
+
             await db.timeEntries.update(entry.id, {
                 description: editDescription,
+                projectId: editProjectId ? Number(editProjectId) : null,
                 startTime: start,
                 endTime: end,
-                duration: durationSeconds
+                duration: durationSeconds,
             });
             toast.success('Entry updated');
             setIsEditing(false);
         } catch (e) {
+            console.error(e);
             toast.error('Failed to update');
         }
     };
@@ -79,6 +131,23 @@ export const TimeEntryItem = ({ entry, project }) => {
         }
     };
 
+    /* --------------------------------------------------------------------- */
+    /* Display helpers                                                       */
+    /* --------------------------------------------------------------------- */
+    const formatTimeDisplay = (date) => {
+        try {
+            const d = new Date(date);
+            return isNaN(d.getTime())
+                ? 'Invalid Date'
+                : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch {
+            return 'Invalid Date';
+        }
+    };
+
+    /* --------------------------------------------------------------------- */
+    /* Render                                                                */
+    /* --------------------------------------------------------------------- */
     return (
         <div className="bg-card p-3 rounded-lg flex flex-col gap-4 shadow-sm border border-border">
             {isEditing ? (
@@ -88,36 +157,78 @@ export const TimeEntryItem = ({ entry, project }) => {
                         value={editDescription}
                         onChange={(e) => setEditDescription(e.target.value)}
                         className="p-2 rounded bg-secondary text-foreground"
+                        placeholder="Description"
                     />
-                    <div className="grid grid-cols-2 gap-2">
+
+                    {/* Project Selector */}
+                    {projects && projects.length > 0 && (
                         <div>
-                            <label className="block text-sm text-muted-foreground mb-1">Start Time</label>
+                            <label className="block text-sm text-muted-foreground mb-1">Project</label>
+                            <select
+                                value={editProjectId || ''}
+                                onChange={(e) => setEditProjectId(e.target.value ? Number(e.target.value) : null)}
+                                className="w-full p-2 rounded bg-secondary text-foreground"
+                            >
+                                <option value="">No Project</option>
+                                {projects.map(p => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-3 gap-2">
+                        {/* Start Date */}
+                        <div>
+                            <label className="block text-sm text-muted-foreground mb-1">Date</label>
                             <input
-                                type="datetime-local"
-                                value={formatForInput(startTime)}
-                                onChange={(e) => setStartTime(e.target.value)}
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
                                 className="w-full p-2 rounded bg-secondary text-foreground"
                             />
                         </div>
+                        {/* Start Time */}
                         <div>
-                            <label className="block text-sm text-muted-foreground mb-1">End Time</label>
+                            <label className="block text-sm text-muted-foreground mb-1">Start Time</label>
                             <input
-                                type="datetime-local"
-                                value={formatForInput(endTime)}
-                                onChange={(e) => setEndTime(e.target.value)}
+                                type="time"
+                                value={startTimeStr}
+                                onChange={(e) => setStartTimeStr(e.target.value)}
+                                className="w-full p-2 rounded bg-secondary text-foreground"
+                            />
+                        </div>
+                        {/* Duration */}
+                        <div>
+                            <label className="block text-sm text-muted-foreground mb-1">Duration (hh:mm:ss)</label>
+                            <input
+                                type="text"
+                                value={durationInput}
+                                onChange={(e) => setDurationInput(e.target.value)}
+                                placeholder="01:00:00"
                                 className="w-full p-2 rounded bg-secondary text-foreground"
                             />
                         </div>
                     </div>
+
+                    {/* Computed End Time Preview */}
+                    {endTime && (
+                        <div className="text-xs text-muted-foreground">
+                            Ends at: {new Date(endTime).toLocaleString()}
+                        </div>
+                    )}
+
                     <div className="flex gap-2 justify-end">
-                        <button 
-                            onClick={() => setIsEditing(false)} 
+                        <button
+                            onClick={() => setIsEditing(false)}
                             className="bg-muted hover:bg-border text-foreground p-1 px-3 rounded text-sm"
                         >
                             Cancel
                         </button>
-                        <button 
-                            onClick={handleSave} 
+                        <button
+                            onClick={handleSave}
                             className="bg-primary hover:opacity-90 text-primary-foreground p-1 px-3 rounded text-sm"
                         >
                             Save
@@ -128,23 +239,28 @@ export const TimeEntryItem = ({ entry, project }) => {
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex-grow font-medium text-foreground">{entry.description}</div>
                     <div className="flex items-center gap-4 text-sm">
-                         <div className="flex items-center gap-2 text-muted-foreground">
-                            <span className="w-3 h-3 rounded-full" style={{backgroundColor: project?.color || '#64748b' }}></span>
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <span
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: project?.color || '#64748b' }}
+                            ></span>
                             <span className="font-semibold">{project?.name || 'No Project'}</span>
                         </div>
                         <div className="text-muted-foreground">
-                            {formatTime(entry.startTime)} - {formatTime(entry.endTime)}
+                            {formatTimeDisplay(entry.startTime)} - {formatTimeDisplay(entry.endTime)}
                         </div>
-                        <div className="font-mono text-lg text-foreground w-28 text-center">{formatDuration(entry.duration)}</div>
+                        <div className="font-mono text-lg text-foreground w-28 text-center">
+                            {formatDuration(entry.duration)}
+                        </div>
                         <div className="flex gap-2">
-                            <button 
-                                onClick={() => setIsEditing(true)} 
+                            <button
+                                onClick={() => setIsEditing(true)}
                                 className="text-ring hover:text-foreground"
                             >
                                 Edit
                             </button>
-                            <button 
-                                onClick={deleteEntry} 
+                            <button
+                                onClick={deleteEntry}
                                 className="text-destructive hover:opacity-80"
                             >
                                 Delete

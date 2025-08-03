@@ -142,7 +142,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                         onClick={async () => {
                             toast.dismiss(t.id);
                             try {
-                                console.log('[Goal] Deleting goal', id);
+                                // console.log('[Goal] Deleting goal', id);
                                 await db.timeGoals.delete(id);
                                 toast.success('Goal deleted');
                             } catch (err) {
