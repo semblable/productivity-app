@@ -8,11 +8,25 @@ export const WeeklyReview = ({ onExit }) => {
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
         /* -----------------------------  TASKS  ----------------------------- */
-        // All tasks created in the last week
-        const recentTasks = await db.tasks
-            .where('createdAt')
-            .above(oneWeekAgo)
-            .toArray();
+        // All tasks created in the last week – use a safe comparison so we don't accidentally
+        // include tasks whose createdAt may be stored as a string (older backups) or tasks that
+        // have since been removed. We fetch all tasks and then filter in JS to handle both Date
+        // and string representations consistently.
+        const recentTasks = (await db.tasks.toArray()).filter(t => {
+            // Rule 1: Must be a top-level task, not a sub-task.
+            const isSubtask = t.parentId !== null && t.parentId !== undefined;
+            if (isSubtask) return false;
+
+            // Rule 2: Must have a creation date.
+            if (!t.createdAt) return false;
+
+            // Rule 3: Skip any soft-deleted tasks (future-proofing).
+            if (t.deleted) return false;
+
+            // Rule 4: Must be created within the last week.
+            const created = t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt);
+            return created >= oneWeekAgo;
+        });
 
         const completedTasks = recentTasks.filter(t => t.completed);
         const pendingTasks   = recentTasks.filter(t => !t.completed);
