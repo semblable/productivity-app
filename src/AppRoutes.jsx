@@ -15,15 +15,6 @@ export function AppRoutes({ handleStartFocus, handleSelectSlot, handleSelectEven
   const { appState, setState } = useAppContext();
   const { calendarDate, calendarView, activeTimer, activeGoalId, eventToTrack } = appState;
 
-  const initialActiveTimer = (() => {
-    try {
-      const stored = localStorage.getItem('activeTimer');
-      return stored ? JSON.parse(stored) : null;
-    } catch (e) {
-      console.error('Failed to parse activeTimer from localStorage', e);
-      return null;
-    }
-  })();
 
   return (
     <Routes>
@@ -83,7 +74,7 @@ export function AppRoutes({ handleStartFocus, handleSelectSlot, handleSelectEven
       <Route path="/notes" element={<NotesView />} />
       <Route
         path="/"
-        element={<Navigate to={initialActiveTimer ? '/tracker' : '/dashboard'} replace />}
+        element={<Navigate to={activeTimer ? '/tracker' : '/dashboard'} replace />}
       />
     </Routes>
   );

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useAppContext } from '../context/AppContext';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { db } from '../db/db';
@@ -15,6 +16,7 @@ const priorityStyles = {
 };
 
 export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }) => {
+    const { appState, toggleTaskSelection } = useAppContext();
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(task.text);
     const [editProjectId, setEditProjectId] = useState(task.projectId);
@@ -177,20 +179,102 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
    const inputClasses = "p-1 rounded-md bg-secondary border border-border text-foreground focus:ring-2 focus:ring-ring focus:outline-none";
        const buttonClasses = "text-muted-foreground hover:text-foreground transition-colors";
     
+    const isSelected = appState.selectedTaskIds.has(task.id);
     const containerClasses = isOverlay
         ? 'rounded-lg bg-card border-2 border-primary shadow-2xl transform scale-105'
-        : `rounded-lg cursor-grab active:cursor-grabbing transition-all duration-300 bg-card border border-border shadow-sm ${task.completed ? 'opacity-60' : ''} ${priorityClass} ${isDragging ? 'opacity-30' : ''}`;
+        : `rounded-lg cursor-grab active:cursor-grabbing transition-all duration-300 ${
+            isSelected 
+                ? 'bg-primary/10 border-2 border-primary shadow-md ring-1 ring-primary/20' 
+                : 'bg-card border border-border shadow-sm'
+          } ${task.completed ? 'opacity-60' : ''} ${priorityClass} ${isDragging ? 'opacity-30' : ''}`;
 
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={containerClasses}>
+        <div 
+            ref={setNodeRef} 
+            style={style} 
+            {...attributes} 
+            {...listeners} 
+            className={containerClasses}
+            data-task-item="true"
+            data-task-id={task.id}
+        >
         <div className="flex items-center justify-between gap-2 p-3">
             <div className="flex items-center gap-3 flex-grow">
-                <input
-                    type="checkbox"
-                    checked={!!task.completed}
-                    onChange={toggleCompleted}
-                    className="h-5 w-5 rounded bg-secondary border-border text-primary focus:ring-primary"
-                />
+                {appState.multiSelectMode && (
+                    <div 
+                        className="relative cursor-pointer"
+                        onClick={() => toggleTaskSelection(task.id)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                toggleTaskSelection(task.id);
+                            }
+                        }}
+                        tabIndex={0}
+                        role="checkbox"
+                        aria-checked={isSelected}
+                        aria-label="Select task for bulk actions"
+                    >
+                        <div
+                            style={{
+                                width: '24px',
+                                height: '24px',
+                                border: isSelected ? '3px solid #3b82f6' : '2px solid #94a3b8',
+                                borderRadius: '4px',
+                                backgroundColor: isSelected ? '#3b82f6' : '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s ease',
+                                boxShadow: isSelected ? '0 4px 12px rgba(59, 130, 246, 0.3)' : '0 1px 3px rgba(0,0,0,0.1)',
+                                transform: isSelected ? 'scale(1.05)' : 'scale(1)'
+                            }}
+                        >
+                            {isSelected && (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                                    <polyline points="20,6 9,17 4,12"></polyline>
+                                </svg>
+                            )}
+                        </div>
+                    </div>
+                )}
+                <div 
+                    className="relative cursor-pointer"
+                    onClick={appState.multiSelectMode ? undefined : toggleCompleted}
+                    onKeyDown={appState.multiSelectMode ? undefined : (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleCompleted();
+                        }
+                    }}
+                    tabIndex={appState.multiSelectMode ? -1 : 0}
+                    role="checkbox"
+                    aria-checked={task.completed}
+                    aria-disabled={appState.multiSelectMode}
+                    aria-label={appState.multiSelectMode ? "Complete task (disabled in multi-select mode)" : "Complete task"}
+                >
+                    <div
+                        style={{
+                            width: '20px',
+                            height: '20px',
+                            border: appState.multiSelectMode ? '1px solid #d1d5db' : '2px solid #6b7280',
+                            borderRadius: '50%',
+                            backgroundColor: task.completed ? '#10b981' : (appState.multiSelectMode ? '#f3f4f6' : '#ffffff'),
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s ease',
+                            opacity: appState.multiSelectMode ? 0.4 : 1,
+                            cursor: appState.multiSelectMode ? 'not-allowed' : 'pointer'
+                        }}
+                    >
+                        {task.completed && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                                <polyline points="20,6 9,17 4,12"></polyline>
+                            </svg>
+                        )}
+                    </div>
+                </div>
                 {isEditing ? (
                     <>
                         <input

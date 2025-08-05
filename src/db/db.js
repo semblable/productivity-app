@@ -131,6 +131,31 @@ db.version(22).stores({
     habit_completions: '++id, habitId, date, [habitId+date]'
 });
 
+// Version 23 - Add parentId to folders for nesting support
+// Existing folders default to parentId = null
+// compound index not needed yet
+
+db.version(23).stores({
+  folders: '++id, name, projectId, parentId, createdAt, color'
+}).upgrade(tx => tx.table('folders').toCollection().modify(f => {
+  if (!('parentId' in f)) f.parentId = null;
+}));
+
+// Version 24 - Add templateId to tasks for recurring task tracking without parentId
+// This replaces the parentId approach for recurring task instances
+db.version(24).stores({
+  tasks: '++id, text, projectId, completed, createdAt, goalId, parentId, folderId, order, templateId'
+}).upgrade(tx => tx.table('tasks').toCollection().modify(t => {
+  if (!('templateId' in t)) t.templateId = null;
+}));
+
+// Version 25 - Add templateId to events for consistency with recurring tasks
+db.version(25).stores({
+  events: '++id, title, startTime, endTime, rrule, parentId, lastInstance, projectId, templateId'
+}).upgrade(tx => tx.table('events').toCollection().modify(e => {
+  if (!('templateId' in e)) e.templateId = null;
+}));
+
 // --- Compatibility alias ---
 // Older components may still reference db.timeGoals. Point it to the new goals table
 db.timeGoals = db.table('goals');

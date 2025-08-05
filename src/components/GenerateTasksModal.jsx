@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useGeminiTaskify } from '../hooks/useGeminiTaskify';
 import { bulkAddTasks } from '../db/bulkAddTasks';
 import { db } from '../db/db';
 import { toast } from 'react-toastify';
+import { prepareFoldersForDisplay } from '../utils/folderDisplay';
 
 export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
   const projects = useLiveQuery(() => db.projects.toArray(), []);
@@ -14,6 +15,18 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
   const [enhance, setEnhance] = useState(false);
 
   const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: Number(projectId) }).toArray() : [], [projectId]);
+
+  // Create project map and prepare folders with hierarchy display
+  const projectMap = useMemo(() => {
+    return projects?.reduce((map, proj) => {
+      map[proj.id] = proj;
+      return map;
+    }, {}) || {};
+  }, [projects]);
+
+  const displayFolders = useMemo(() => {
+    return folders ? prepareFoldersForDisplay(folders, projectMap) : [];
+  }, [folders, projectMap]);
 
   useEffect(() => {
     if (defaultProjectId) setProjectId(defaultProjectId);
@@ -71,7 +84,7 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
               </select>
             </label>
           )}
-          {projectId && folders && (
+          {projectId && displayFolders && displayFolders.length > 0 && (
             <label className="flex flex-col gap-1">
               <span className="text-sm text-muted-foreground">Folder</span>
               <select
@@ -80,8 +93,8 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
                 className="p-2 rounded-md bg-secondary border border-border"
               >
                 <option value="">No Folder</option>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
+                {displayFolders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.displayPath}</option>
                 ))}
               </select>
             </label>

@@ -137,6 +137,7 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
             startTime: start,
             endTime: end,
             rrule: rruleString,
+            templateId: null, // New events are not instances
         };
         
         try {

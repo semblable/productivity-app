@@ -5,9 +5,9 @@ import { db } from './db';
  * @param {{ name: string, projectId: number, color?: string }} param0
  * @returns {Promise<number>} The newly created folder id (Dexie returns id)
  */
-export const createFolder = async ({ name, projectId, color }) => {
+export const createFolder = async ({ name, projectId, parentId = null, color }) => {
   const createdAt = new Date();
-  return db.folders.add({ name, projectId, color, createdAt });
+  return db.folders.add({ name, projectId, parentId, color, createdAt });
 };
 
 /**

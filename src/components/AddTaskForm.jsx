@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
 import { RecurrenceModal } from './RecurrenceModal';
+import { prepareFoldersForDisplay } from '../utils/folderDisplay';
 
 const priorityLevels = {
     0: 'None',
@@ -27,6 +28,18 @@ export const AddTaskForm = ({ projects }) => {
    const goals = useLiveQuery(() => db.goals.toArray(), []);
    const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: Number(projectId) }).toArray() : [], [projectId]);
 
+   // Create project map and prepare folders with hierarchy display
+   const projectMap = useMemo(() => {
+     return projects?.reduce((map, proj) => {
+       map[proj.id] = proj;
+       return map;
+     }, {}) || {};
+   }, [projects]);
+
+   const displayFolders = useMemo(() => {
+     return folders ? prepareFoldersForDisplay(folders, projectMap) : [];
+   }, [folders, projectMap]);
+
    const addTask = async (e) => {
       e.preventDefault();
      if (!text.trim()) return toast.error("Task text cannot be empty.");
@@ -48,6 +61,7 @@ export const AddTaskForm = ({ projects }) => {
          goalId: goalId === 'none' ? null : Number(goalId),
          rrule: rruleString,
          parentId: null,
+         templateId: null, // Regular tasks are not instances of templates
        });
 
        if (isHabit && rruleString) {
@@ -94,10 +108,10 @@ export const AddTaskForm = ({ projects }) => {
             <option value="">No Project</option>
             {projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        {projectId && folders && (
+        {projectId && displayFolders && displayFolders.length > 0 && (
             <select value={folderId} onChange={e => setFolderId(e.target.value)} className={inputClasses}>
                 <option value="">No Folder</option>
-                {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                {displayFolders.map(f => <option key={f.id} value={f.id}>{f.displayPath}</option>)}
             </select>
         )}
         <select value={priority} onChange={e => setPriority(e.target.value)} className={inputClasses}>

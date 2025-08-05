@@ -142,14 +142,16 @@ function AppLayout() {
         }
         recurrenceCheckInProgress.current = true;
 
+        try {
+
         const now = new Date();
         const lookahead = new Date();
         lookahead.setDate(now.getDate() + 7);
 
         const processRecurrence = async (item, type) => {
-            if (!item.rrule || item.parentId) return;
-
             const isEvent = type === 'event';
+            if (!item.rrule || (isEvent && item.parentId) || (!isEvent && item.templateId)) return;
+
             const dbTable = isEvent ? db.events : db.tasks;
             const startTimeField = isEvent ? 'startTime' : 'createdAt';
             
@@ -168,7 +170,8 @@ function AppLayout() {
                     }
 
                     // Check if an instance already exists for this exact time
-                    const exists = await dbTable.where({ parentId: item.id })
+                    // Use templateId + occurrence time to detect duplicates without parentId
+                    const exists = await dbTable.where('templateId').equals(item.id)
                         .filter(child => new Date(child[startTimeField]).getTime() === occTime)
                         .first();
 
@@ -176,14 +179,15 @@ function AppLayout() {
                         const newItem = {
                             ...item,
                             id: undefined,
-                            parentId: item.id,
-                            rrule: null,
+                            templateId: item.id, // Track template without parentId hierarchy
+                            rrule: null, // Remove rrule from instances
                         };
                         newItem[startTimeField] = occurrence;
 
                         if (isEvent) {
                             const duration = new Date(item.endTime).getTime() - new Date(item.startTime).getTime();
                             newItem.endTime = new Date(occurrence.getTime() + duration);
+                            newItem.parentId = item.id; // link instance back to parent for bulk operations
                         } else {
                             newItem.dueDate = occurrence;
                             newItem.completed = false;
@@ -197,8 +201,8 @@ function AppLayout() {
             }
         };
 
-        const recurringTasks = await db.tasks.filter(task => !!task.rrule && !task.parentId).toArray();
-        const recurringEvents = await db.events.filter(event => !!event.rrule && !event.parentId).toArray();
+        const recurringTasks = await db.tasks.filter(task => !!task.rrule && !task.templateId).toArray();
+        const recurringEvents = await db.events.filter(event => !!event.rrule && !event.templateId).toArray();
         
         for (const task of recurringTasks) {
             await processRecurrence(task, 'task');
@@ -208,7 +212,11 @@ function AppLayout() {
             await processRecurrence(event, 'event');
         }
 
-        recurrenceCheckInProgress.current = false;
+        } catch (err) {
+            console.error('Error in handleRecurrence:', err);
+        } finally {
+            recurrenceCheckInProgress.current = false;
+        }
     };
 
     // --- Calendar Handlers ---

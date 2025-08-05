@@ -13,9 +13,10 @@ export const WeeklyReview = ({ onExit }) => {
         // have since been removed. We fetch all tasks and then filter in JS to handle both Date
         // and string representations consistently.
         const recentTasks = (await db.tasks.toArray()).filter(t => {
-            // Rule 1: Must be a top-level task, not a sub-task.
+            // Rule 1: Must be a top-level task, not a database-level subtask or recurring template.
             const isSubtask = t.parentId !== null && t.parentId !== undefined;
-            if (isSubtask) return false;
+            const isRecurringTemplate = t.rrule && !t.templateId;
+            if (isSubtask || isRecurringTemplate) return false;
 
             // Rule 2: Must have a creation date.
             if (!t.createdAt) return false;

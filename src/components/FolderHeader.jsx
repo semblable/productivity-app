@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ChevronDown, Trash2 } from 'lucide-react';
+import { ChevronDown, Trash2, Plus } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDroppable } from '@dnd-kit/core';
 import { db } from '../db/db';
+import { createFolder } from '../db/folder-utils';
 import { deleteFolder } from '../db/folder-utils';
 import { toast } from 'react-toastify';
 
@@ -10,7 +11,7 @@ import { toast } from 'react-toastify';
  * Collapsible header representing a folder of tasks.
  * Children (task list) will be rendered underneath when expanded.
  */
-export const FolderHeader = ({ folder, children, className='' }) => {
+export const FolderHeader = ({ folder, children, className='', style={} }) => {
   const [isOpen, setIsOpen] = useState(true);
 
   // Live progress calculation
@@ -37,7 +38,7 @@ export const FolderHeader = ({ folder, children, className='' }) => {
   const { isOver, setNodeRef } = useDroppable({ id: `folder-${folder.id}` });
 
   return (
-    <div ref={setNodeRef} className={`rounded-lg border border-border bg-card shadow-sm ${isOver ? 'ring-2 ring-primary' : ''} ${className}`}>
+    <div ref={setNodeRef} style={style} className={`rounded-lg border border-border bg-card shadow-sm ${isOver ? 'ring-2 ring-primary' : ''} ${className}`}>
       <div
         role="button"
         tabIndex={0}
@@ -50,6 +51,25 @@ export const FolderHeader = ({ folder, children, className='' }) => {
           <span className="font-semibold" style={{ color: folder.color || undefined }}>{folder.name}</span>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            title="Add sub-folder"
+            onClick={async (e) => {
+              e.stopPropagation();
+              const name = window.prompt('New sub-folder name:');
+              if (name && name.trim()) {
+                try {
+                  await createFolder({ name: name.trim(), projectId: folder.projectId, parentId: folder.id });
+                  toast.success(`Sub-folder "${name.trim()}" created`);
+                } catch (err) {
+                  console.error('Failed to create sub-folder:', err);
+                  toast.error('Failed to create sub-folder');
+                }
+              }
+            }}
+            className="text-muted-foreground hover:text-primary transition-colors p-1"
+          >
+            <Plus size={16} />
+          </button>
           <span className="text-sm text-muted-foreground">{completed}/{total}</span>
           <button onClick={(e) => { e.stopPropagation(); handleDelete(); }} className="text-muted-foreground hover:text-red-500 transition-colors p-1">
             <Trash2 size={16} />

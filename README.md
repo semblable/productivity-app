@@ -5,7 +5,7 @@ Personal productivity application for task management, goal tracking, and time o
 
 ## Features
 - **Dashboard**: Overview of tasks, events, and productivity metrics
-- **Calendar Integration**: Schedule and manage events with daily/weekly views
+- **Calendar Integration**: Schedule and manage events with daily/weekly views, including support for recurring events.
 - **Pomodoro Timer**: Focus sessions with configurable work/break intervals
 - **Task Management**: Create, prioritize, and track todo items
 - **Project Organization**: Group tasks into projects with progress tracking
@@ -13,9 +13,9 @@ Personal productivity application for task management, goal tracking, and time o
   - Create folders within projects to group related tasks.
   - Drag-and-drop tasks to move them between folders or to reorder them.
   - Folders display progress bars and completion counts.
-  - Delete folders with an option to either delete the tasks within them or move them to "Ungrouped."
 - **Time Tracking**: Log and categorize time spent on activities
 - **Notes System**: Markdown-enabled note taking with categorization
+- **Habit Tracking**: Define and track daily habits, monitor streaks, and visualize progress.
 - **Weekly Reviews**: Reflection and planning tools
 - **Dark/Light Mode**: Theme toggle for preferred viewing
 - **Offline Support**: Local data persistence using IndexedDB
@@ -23,21 +23,21 @@ Personal productivity application for task management, goal tracking, and time o
 
 ## Installation
 1. Clone the repository:
-```bash
+`bash
 git clone https://github.com/semblable/productivity-app.git
-```
+`
 2. Navigate to project directory:
-```bash
+`bash
 cd productivity-app
-```
+`
 3. Install dependencies:
-```bash
+`bash
 npm install
-```
+`
 4. Start development server:
-```bash
+`bash
 npm start
-```
+`
 
 ## Usage
 ### Basic Workflow
@@ -73,12 +73,3 @@ npm start
 - **Routing**: The routing logic has been extracted from the main `App` component into a dedicated `AppRoutes.jsx` component for better separation of concerns.
 - **State Management**: Global application state is now managed with React Context, eliminating prop drilling and improving data flow predictability.
 - **Component Decomposition**: The main `App` component has been refactored to be a simple container for the `AppLayout` and `AppProvider`, with the `AppLayout` handling the main page structure and the `AppProvider` managing the application state.
-
-## Future Roadmap
-- [ ] Mobile application (React Native)
-- [ ] Cross-device sync via cloud service
-- [x] Pomodoro timer with configurable intervals and notifications
-- [ ] Time tracking reports and exports
-- [ ] Integration with external calendars (Google Calendar, Outlook)
-- [ ] Habit tracking system
-- [ ] Customizable dashboard widgets

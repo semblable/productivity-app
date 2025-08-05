@@ -50,12 +50,12 @@ const IvyLeePlanner = ({ onPlanCreated }) => {
     const allTasks = await db.tasks.filter(task => !task.completed).toArray();
 
     // 2. Keep only those that are relevant for the Ivy-Lee plan for tomorrow:
-    //    • Exclude the template (parent) rows of recurring tasks (those still holding an rrule and no parentId).
+    //    • Exclude the template rows of recurring tasks (those with rrule but no templateId).
     //    • If a task has a dueDate, include it only when that dueDate is exactly tomorrow.
     //    • Tasks without a dueDate (back-log tasks) are always eligible so that users can still pick them.
     return allTasks.filter(t => {
-      // Skip the recurring template (parent) items
-      if (t.rrule && !t.parentId) return false;
+      // Skip the recurring template items (those with rrule but no templateId)
+      if (t.rrule && !t.templateId) return false;
 
       if (t.dueDate) {
         return format(new Date(t.dueDate), 'yyyy-MM-dd') === tomorrowStr;

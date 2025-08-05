@@ -36,6 +36,7 @@ export const bulkAddTasks = async (tree = [], projectId, folderId = null) => {
     parentId: null,
     completed: false,
     createdAt: new Date(),
+    templateId: null, // AI-generated tasks are not recurring instances
     subtasks: Array.isArray(node.children) ? node.children.map(buildSubtask) : [],
   }));
 

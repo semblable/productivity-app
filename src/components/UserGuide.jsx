@@ -135,7 +135,7 @@ const UserGuide = ({ isOpen, onClose }) => {
                         <div className="border border-border p-3 rounded-lg">
                             <h4 className="font-semibold mb-2">🔄 Recurring Tasks</h4>
                             <p className="text-sm text-muted-foreground">
-                                Set up tasks that repeat daily, weekly, or monthly. The app automatically creates the next instance for you after the due date passes.
+                                Set up tasks that repeat daily, weekly, or monthly. The app automatically creates the next instance for you. Deleting a recurring task gives you the option to delete just that one instance, or the entire series.
                             </p>
                         </div>
                     </div>
@@ -193,14 +193,8 @@ const UserGuide = ({ isOpen, onClose }) => {
                         <div className="border border-border p-3 rounded-lg">
                             <h4 className="font-semibold mb-2">➕ Creating Habits</h4>
                             <p className="text-sm text-muted-foreground mb-2">
-                                Add new habits with:
+                                Add new habits directly or by tracking a recurring task as a habit. You can set custom names and link them to projects.
                             </p>
-                            <ul className="text-sm text-muted-foreground space-y-1 ml-4">
-                                <li>• Custom names and descriptions</li>
-                                <li>• Target frequency (daily, weekly, etc.)</li>
-                                <li>• Color coding for organization</li>
-                                <li>• Optional reminders</li>
-                            </ul>
                         </div>
                         <div className="border border-border p-3 rounded-lg">
                             <h4 className="font-semibold mb-2">📅 Habit Calendar</h4>
@@ -211,7 +205,7 @@ const UserGuide = ({ isOpen, onClose }) => {
                         <div className="border border-border p-3 rounded-lg">
                             <h4 className="font-semibold mb-2">🔥 Streak Tracking</h4>
                             <p className="text-sm text-muted-foreground">
-                                Monitor current streaks and track your longest streaks for motivation.
+                                Monitor current streaks and track your longest streaks for motivation. Miss a day? The app will use a "streak freeze" if you have one, or reset the streak to zero. You earn freezes for maintaining long streaks.
                             </p>
                         </div>
                         <div className="border border-border p-3 rounded-lg">
@@ -302,7 +296,7 @@ const UserGuide = ({ isOpen, onClose }) => {
                                 <li>• Set a title, start time, and end time.</li>
                                 <li>• Assign the event to a project.</li>
                                 <li>• Set up a recurring schedule (daily, weekly, custom, etc.).</li>
-                                <li>• For recurring events, you can choose to edit a single instance, the entire series, or split the series into two.</li>
+                                <li>• For recurring events, you can choose to edit or delete a single instance, the entire series, or this and all following events.</li>
                                 <li>• Start a time tracker directly from a calendar event.</li>
                             </ul>
                         </div>

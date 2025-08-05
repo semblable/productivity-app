@@ -40,6 +40,7 @@ export const AddHabitForm = ({ onHabitAdded }) => {
                 priority: 0,
                 rrule: rruleString,
                 parentId: null,
+                templateId: null, // Habit templates are not instances
             });
 
             await db.habits.add({
