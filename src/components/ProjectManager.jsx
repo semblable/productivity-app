@@ -184,6 +184,9 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                 await db.events.bulkDelete(eventsToDelete);
                                 const goalsToDelete = await db.timeGoals.where({ projectId: id }).primaryKeys();
                                 await db.timeGoals.bulkDelete(goalsToDelete);
+                                // Also delete associated folders
+                                const foldersToDelete = await db.folders.where({ projectId: id }).primaryKeys();
+                                await db.folders.bulkDelete(foldersToDelete);
                                 
                                 toast.success("Project deleted.");
                             } catch(error) {

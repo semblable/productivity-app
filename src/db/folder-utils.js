@@ -18,26 +18,45 @@ export const createFolder = async ({ name, projectId, parentId = null, color }) 
 export const renameFolder = (id, name) => db.folders.update(id, { name });
 
 /**
- * Delete a folder.
- * If cascade is true, also delete all tasks that belong to the folder.
+ * Delete a folder and all its child folders recursively.
+ * If cascade is true, also delete all tasks that belong to the folder and its children.
  * Otherwise, move tasks to Ungrouped by setting folderId = null.
  * @param {number} id Folder id to delete
  * @param {{ cascade?: boolean }} opts Options
  */
 export const deleteFolder = async (id, { cascade = false } = {}) => {
-  if (cascade) {
-    // Delete all tasks within the folder then remove folder row
-    await db.transaction('rw', db.tasks, db.folders, async () => {
-      await db.tasks.where({ folderId: id }).delete();
-      await db.folders.delete(id);
-    });
-  } else {
-    // Move tasks to Ungrouped (folderId = null)
-    await db.transaction('rw', db.tasks, db.folders, async () => {
-      await db.tasks.where({ folderId: id }).modify({ folderId: null });
-      await db.folders.delete(id);
-    });
-  }
+  await db.transaction('rw', db.tasks, db.folders, async () => {
+    // Get all child folders recursively
+    const getAllChildFolders = async (parentId) => {
+      const children = await db.folders.where({ parentId }).toArray();
+      let allChildren = [...children];
+      
+      for (const child of children) {
+        const grandChildren = await getAllChildFolders(child.id);
+        allChildren = allChildren.concat(grandChildren);
+      }
+      
+      return allChildren;
+    };
+    
+    const childFolders = await getAllChildFolders(id);
+    const allFolderIds = [id, ...childFolders.map(f => f.id)];
+    
+    if (cascade) {
+      // Delete all tasks within the folder hierarchy
+      for (const folderId of allFolderIds) {
+        await db.tasks.where({ folderId }).delete();
+      }
+    } else {
+      // Move all tasks to Ungrouped (folderId = null)
+      for (const folderId of allFolderIds) {
+        await db.tasks.where({ folderId }).modify({ folderId: null });
+      }
+    }
+    
+    // Delete all folders in the hierarchy
+    await db.folders.bulkDelete(allFolderIds);
+  });
 };
 
 /**
