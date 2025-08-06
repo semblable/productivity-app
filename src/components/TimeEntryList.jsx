@@ -85,12 +85,6 @@ export const TimeEntryList = () => {
     }, {});
 
     if (!entries || !projects) return <div className="text-gray-600 dark:text-gray-300">Loading...</div>;
-    if (entries.length === 0)
-        return (
-            <div className="text-gray-600 dark:text-gray-300 mt-4 text-center">
-                No time entries yet. Start the timer to log your work!
-            </div>
-        );
 
     return (
         <div className="space-y-6 mt-4">
@@ -138,7 +132,12 @@ export const TimeEntryList = () => {
             </div>
 
             {entries.length === 0 ? (
-                <div className="text-center py-8">No time entries in this period.</div>
+                <div className="text-center py-8">
+                    {filter === 'today' ? 
+                        "No time entries today. Start the timer to log your work!" :
+                        "No time entries in this period."
+                    }
+                </div>
             ) : (
                 Object.keys(groupedEntries).map((date) => (
                     <div key={date}>
