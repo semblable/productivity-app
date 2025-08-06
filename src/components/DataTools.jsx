@@ -1,7 +1,7 @@
 import { db } from '../db/db';
 import { useRef } from 'react';
 import toast from 'react-hot-toast';
-import { Upload, Download, Star } from 'lucide-react';
+import { Upload, Download, Star, Trash2 } from 'lucide-react';
 
 export const DataTools = ({ onShowReview }) => {
     const fileInputRef = useRef(null);
@@ -19,9 +19,28 @@ export const DataTools = ({ onShowReview }) => {
            }
 
            // Also back up relevant localStorage settings
+           const settings = {};
            const pomodoroSettings = localStorage.getItem('pomodoroSettings');
-           if (pomodoroSettings) {
-               data.settings = { pomodoroSettings };
+           const theme = localStorage.getItem('theme');
+           const activeTimer = localStorage.getItem('activeTimer');
+           
+           if (pomodoroSettings) settings.pomodoroSettings = pomodoroSettings;
+           if (theme) settings.theme = theme;
+           if (activeTimer) settings.activeTimer = activeTimer;
+           
+           // Backup notification settings
+           const notificationKeys = Object.keys(localStorage).filter(key => 
+               key.startsWith('notification_') || key.includes('Notification')
+           );
+           if (notificationKeys.length > 0) {
+               settings.notifications = {};
+               notificationKeys.forEach(key => {
+                   settings.notifications[key] = localStorage.getItem(key);
+               });
+           }
+           
+           if (Object.keys(settings).length > 0) {
+               data.settings = settings;
            }
 
            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -155,7 +174,18 @@ export const DataTools = ({ onShowReview }) => {
             
             // Restore settings from backup
             if (settings?.pomodoroSettings) {
-                 localStorage.setItem('pomodoroSettings', settings.pomodoroSettings);
+                localStorage.setItem('pomodoroSettings', settings.pomodoroSettings);
+            }
+            if (settings?.theme) {
+                localStorage.setItem('theme', settings.theme);
+            }
+            if (settings?.activeTimer) {
+                localStorage.setItem('activeTimer', settings.activeTimer);
+            }
+            if (settings?.notifications) {
+                Object.entries(settings.notifications).forEach(([key, value]) => {
+                    localStorage.setItem(key, value);
+                });
             }
 
             toast.success("Data imported successfully! Refreshing...");
@@ -169,6 +199,55 @@ export const DataTools = ({ onShowReview }) => {
             if (inputEvent) {
                 inputEvent.target.value = null;
             }
+        }
+    };
+
+    const clearDatabase = async () => {
+        const confirmed = window.confirm(
+            "⚠️ WARNING: This will permanently delete ALL your data including tasks, projects, goals, habits, notes, and time entries. This action cannot be undone!\n\nAre you absolutely sure you want to clear the entire database?"
+        );
+        
+        if (!confirmed) return;
+
+        // Double confirmation for safety
+        const doubleConfirmed = window.confirm(
+            "🚨 FINAL WARNING: You are about to delete EVERYTHING. This includes:\n\n• All tasks and projects\n• All habits and streaks\n• All goals and time tracking\n• All notes and calendar events\n• All folders and settings\n\nType 'DELETE' in the next prompt to confirm."
+        );
+
+        if (!doubleConfirmed) return;
+
+        const deleteConfirmation = window.prompt(
+            "Type 'DELETE' (in capital letters) to confirm database deletion:"
+        );
+
+        if (deleteConfirmation !== 'DELETE') {
+            toast.error("Database clear cancelled - confirmation text did not match.");
+            return;
+        }
+
+        try {
+            await db.transaction('rw', ...db.tables, async () => {
+                for (const table of db.tables) {
+                    await table.clear();
+                }
+            });
+
+            // Clear localStorage settings as well
+            localStorage.removeItem('pomodoroSettings');
+            localStorage.removeItem('theme');
+            localStorage.removeItem('activeTimer');
+            
+            // Clear notification settings
+            const notificationKeys = Object.keys(localStorage).filter(key => 
+                key.startsWith('notification_') || key.includes('Notification')
+            );
+            notificationKeys.forEach(key => localStorage.removeItem(key));
+            
+            toast.success("Database cleared successfully! Refreshing page...");
+            setTimeout(() => window.location.reload(), 1500);
+        } catch (error) {
+            console.error("Clear database failed:", error);
+            toast.error(`Failed to clear database: ${error.message}`);
         }
     };
 
@@ -193,6 +272,9 @@ export const DataTools = ({ onShowReview }) => {
                 </DataButton>
                 <DataButton onClick={onShowReview} className="bg-primary hover:opacity-90 text-primary-foreground mt-2">
                     <Star size={16} /> Weekly Review
+                </DataButton>
+                <DataButton onClick={clearDatabase} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground mt-2">
+                    <Trash2 size={16} /> Clear Database
                 </DataButton>
             </div>
             <input 
