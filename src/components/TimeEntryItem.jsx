@@ -3,7 +3,7 @@ import { db } from '../db/db';
 import { durationToSeconds, formatDuration } from '../utils/duration';
 import toast from 'react-hot-toast';
 
-export const TimeEntryItem = ({ entry, project, projects }) => {
+export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTimer }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editDescription, setEditDescription] = useState(entry.description);
     const [editProjectId, setEditProjectId] = useState(entry.projectId);
@@ -230,6 +230,31 @@ export const TimeEntryItem = ({ entry, project, projects }) => {
                             {formatDuration(entry.duration)}
                         </div>
                         <div className="flex gap-2">
+                            <button
+                                onClick={() => {
+                                    if (activeTimer) {
+                                        toast.error("Stop the current timer first");
+                                        return;
+                                    }
+                                    onStartTimer && onStartTimer({
+                                        description: entry.description,
+                                        projectId: entry.projectId
+                                    });
+                                }}
+                                className={`p-1 ${activeTimer ? 'text-gray-400 cursor-not-allowed' : 'text-primary hover:text-primary/80'}`}
+                                title={activeTimer ? "Stop current timer first" : "Start timer with same settings"}
+                                disabled={!onStartTimer}
+                            >
+                                <svg 
+                                    width="16" 
+                                    height="16" 
+                                    viewBox="0 0 24 24" 
+                                    fill="currentColor"
+                                    className="w-4 h-4"
+                                >
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                            </button>
                             <button
                                 onClick={() => setIsEditing(true)}
                                 className="text-ring hover:text-foreground"

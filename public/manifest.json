@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Productivity Hub",
+  "name": "Productivity Hub - Task Management & Time Tracking",
+  "description": "Complete productivity suite with task management, habit tracking, time tracking, calendar, notes, and AI-powered features for personal and team productivity.",
   "icons": [
     {
       "src": "favicon.ico",
@@ -10,16 +11,60 @@
     {
       "src": "logo192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "maskable any"
     },
     {
       "src": "logo512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "maskable any"
     }
   ],
-  "start_url": ".",
+  "start_url": "/dashboard",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "orientation": "portrait-primary",
+  "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "categories": ["productivity", "business", "utilities"],
+  "lang": "en",
+  "scope": "/",
+  "shortcuts": [
+    {
+      "name": "Add Task",
+      "short_name": "New Task",
+      "description": "Quickly add a new task",
+      "url": "/todo",
+      "icons": [
+        {
+          "src": "favicon.ico",
+          "sizes": "64x64"
+        }
+      ]
+    },
+    {
+      "name": "Time Tracker",
+      "short_name": "Timer",
+      "description": "Start time tracking",
+      "url": "/tracker",
+      "icons": [
+        {
+          "src": "favicon.ico",
+          "sizes": "64x64"
+        }
+      ]
+    },
+    {
+      "name": "Today's Focus",
+      "short_name": "Focus",
+      "description": "View today's priority tasks",
+      "url": "/today",
+      "icons": [
+        {
+          "src": "favicon.ico",
+          "sizes": "64x64"
+        }
+      ]
+    }
+  ]
 }

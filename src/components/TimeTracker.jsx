@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { durationToSeconds, formatDuration } from '../utils/duration';
 import { db, getDefaultProject } from '../db/db';
 import toast from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { logTimeToProjectGoals } from '../db/time-entry-utils';
 
-export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopTimer, initialEvent, onEventConsumed }) => {
+export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoalId, onStopTimer, initialEvent, onEventConsumed }, ref) => {
     const projects = useLiveQuery(() => db.projects.toArray(), []);
     const [description, setDescription] = useState('');
     const [projectId, setProjectId] = useState('');
@@ -31,6 +31,11 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
             setProjectId(pId);
         }
         
+        // Store the last used project in localStorage
+        if (pId) {
+            localStorage.setItem('lastUsedProjectId', pId.toString());
+        }
+        
         const newTimer = {
             description: desc.trim(),
             projectId: Number(pId),
@@ -41,6 +46,11 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
         setActiveTimer(newTimer);
         toast.success("Timer started!");
     }, [description, projectId, projects, activeGoalId, setActiveTimer]);
+
+    // Expose handleStartTimer to parent component via ref
+    useImperativeHandle(ref, () => ({
+        handleStartTimer
+    }), [handleStartTimer]);
 
     useEffect(() => {
         if (initialEvent) {
@@ -63,6 +73,16 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
 
     useEffect(() => {
         if (projects && projects.length > 0 && !projectId) {
+            // Try to use last used project from localStorage
+            const lastUsedProjectId = localStorage.getItem('lastUsedProjectId');
+            if (lastUsedProjectId) {
+                const lastUsedProject = projects.find(p => p.id === Number(lastUsedProjectId));
+                if (lastUsedProject) {
+                    setProjectId(lastUsedProject.id);
+                    return;
+                }
+            }
+            // Fallback to first project
             setProjectId(projects[0].id);
         }
     }, [projects, projectId]);
@@ -269,7 +289,19 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
                 className="flex-grow min-w-[250px] p-2 rounded-md bg-secondary text-foreground placeholder-muted-foreground focus:ring-2 focus:ring-ring focus:outline-none"
                 disabled={!!activeTimer}
             />
-            <select value={projectId || ''} onChange={e => setProjectId(Number(e.target.value))} className="p-2 rounded-md bg-secondary text-foreground focus:ring-2 focus:ring-ring focus:outline-none" disabled={!!activeTimer}>
+            <select 
+                value={projectId || ''} 
+                onChange={e => {
+                    const newProjectId = Number(e.target.value);
+                    setProjectId(newProjectId);
+                    // Store the last used project
+                    if (newProjectId) {
+                        localStorage.setItem('lastUsedProjectId', newProjectId.toString());
+                    }
+                }} 
+                className="p-2 rounded-md bg-secondary text-foreground focus:ring-2 focus:ring-ring focus:outline-none" 
+                disabled={!!activeTimer}
+            >
                 {projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             {!activeTimer && (
@@ -331,4 +363,4 @@ export const TimeTracker = ({ activeTimer, setActiveTimer, activeGoalId, onStopT
             </div>
         </div>
     );
-};
+});

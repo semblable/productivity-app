@@ -3,7 +3,7 @@ import { db } from '../db/db';
 import { TimeEntryItem } from './TimeEntryItem';
 import { useState } from 'react';
 
-export const TimeEntryList = () => {
+export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
     const [filter, setFilter] = useState('today'); // 'today', 'week', 'month', 'all', 'custom'
     const [customRange, setCustomRange] = useState({
         start: new Date().toISOString().split('T')[0],
@@ -151,6 +151,8 @@ export const TimeEntryList = () => {
                                     entry={entry} 
                                     project={projectMap[entry.projectId]} 
                                     projects={projects}
+                                    onStartTimer={onStartTimer}
+                                    activeTimer={activeTimer}
                                 />
                             ))}
                         </div>
