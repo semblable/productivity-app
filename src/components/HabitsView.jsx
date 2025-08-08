@@ -7,6 +7,7 @@ import { AddHabitForm } from './AddHabitForm';
 import { PlusCircle, MoreVertical, Edit, Trash2, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { deleteHabit, updateHabitName, updateHabit, uncompleteHabitToday } from '../db/habit-utils';
+import { normalizeNullableId } from '../db/id-utils';
 import { format } from 'date-fns';
 
 const EditHabitForm = ({ habit, onUpdate, onCancel, allProjects }) => {
@@ -19,7 +20,7 @@ const EditHabitForm = ({ habit, onUpdate, onCancel, allProjects }) => {
             toast.error("Habit name cannot be empty.");
             return;
         }
-        await updateHabitName(habit.id, name.trim(), projectId ? Number(projectId) : null);
+        await updateHabitName(habit.id, name.trim(), normalizeNullableId(projectId));
         toast.success("Habit updated!");
         onUpdate();
     };

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import { createFolder } from '../db/folder-utils';
-import { toast } from 'react-toastify';
+import { normalizeId } from '../db/id-utils';
+import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
 
 /**
@@ -25,7 +26,7 @@ export const AddFolderForm = ({ projectId: initialProjectId }) => {
     if (!name.trim()) return toast.error('Folder name required');
     if (!projectId) return toast.error('Select a project');
     try {
-      await createFolder({ name: name.trim(), projectId: Number(projectId) });
+      await createFolder({ name: name.trim(), projectId: normalizeId(projectId) });
       toast.success('Folder created');
       setName('');
     } catch (err) {

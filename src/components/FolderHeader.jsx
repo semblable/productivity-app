@@ -5,7 +5,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { db } from '../db/db';
 import { createFolder } from '../db/folder-utils';
 import { deleteFolder } from '../db/folder-utils';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast';
 
 /**
  * Collapsible header representing a folder of tasks.

@@ -3,8 +3,9 @@ import { useAppContext } from '../context/AppContext';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { db } from '../db/db';
+import { normalizeNullableId } from '../db/id-utils';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast';
 import { ChevronDown, Edit, Save, Trash2, Zap, Plus, Sparkles, Loader2 } from 'lucide-react';
 import { generateSubTasks } from '../api/geminiClient';
 import { updateHabit } from '../db/habit-utils';
@@ -102,7 +103,7 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
         try {
             await db.tasks.update(task.id, { 
                 text: editText.trim(),
-                projectId: editProjectId ? Number(editProjectId) : null 
+                projectId: normalizeNullableId(editProjectId)
             });
             toast.success("Task updated.");
             setIsEditing(false);

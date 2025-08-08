@@ -12,55 +12,73 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
 
     const projects = useLiveQuery(() => db.projects.toArray(), []);
 
-    const entries = useLiveQuery(() => {
-        const query = db.timeEntries;
-        const now = new Date();
+    const entries = useLiveQuery(async () => {
+        // Use a consistent, type-safe approach that works even if some backups stored dates as strings
+        const all = await db.timeEntries.toArray();
+        const getTime = (value) => {
+            const t = value instanceof Date ? value.getTime() : new Date(value).getTime();
+            return Number.isFinite(t) ? t : 0;
+        };
 
-        const inclusive = true; // for Dexie between inclusivity flags
-        let startRange = null;
-        let endRange = null;
+        const now = new Date();
+        let startMs = null;
+        let endMs = null;
 
         switch (filter) {
             case 'today': {
-                startRange = new Date(now);
-                startRange.setHours(0, 0, 0, 0);
-                endRange = new Date(now);
-                endRange.setHours(23, 59, 59, 999);
+                const start = new Date(now);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                startMs = start.getTime();
+                endMs = end.getTime();
                 break;
             }
             case 'week': {
-                startRange = new Date(now);
-                startRange.setDate(startRange.getDate() - 6); // include today + previous 6 days
-                startRange.setHours(0, 0, 0, 0);
-                endRange = new Date(now);
-                endRange.setHours(23, 59, 59, 999);
+                const start = new Date(now);
+                start.setDate(start.getDate() - 6);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                startMs = start.getTime();
+                endMs = end.getTime();
                 break;
             }
             case 'month': {
-                startRange = new Date(now);
-                startRange.setMonth(startRange.getMonth() - 1);
-                startRange.setHours(0, 0, 0, 0);
-                endRange = new Date(now);
-                endRange.setHours(23, 59, 59, 999);
+                const start = new Date(now);
+                start.setMonth(start.getMonth() - 1);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                startMs = start.getTime();
+                endMs = end.getTime();
                 break;
             }
             case 'custom': {
-                startRange = new Date(customRange.start);
-                startRange.setHours(0, 0, 0, 0);
-                endRange = new Date(customRange.end);
-                endRange.setHours(23, 59, 59, 999);
+                const start = new Date(customRange.start);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(customRange.end);
+                end.setHours(23, 59, 59, 999);
+                startMs = start.getTime();
+                endMs = end.getTime();
                 break;
             }
             case 'all':
-            default:
-                return query.orderBy('startTime').reverse().toArray();
+            default: {
+                return all
+                    .slice()
+                    .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
+            }
         }
 
-        /* Guard: if startRange or endRange invalid, return empty array */
-        if (!startRange || !endRange) {
-            return [];
-        }
-        return query.where('startTime').between(startRange, endRange, inclusive, inclusive).reverse().toArray();
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return [];
+
+        return all
+            .filter((e) => {
+                const t = getTime(e.startTime);
+                return t >= startMs && t <= endMs;
+            })
+            .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
     }, [filter, customRange]);
 
     /* ------------------------------------------------------------------ */
@@ -69,7 +87,7 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
     const projectMap =
         projects?.reduce((map, proj) => {
             // eslint-disable-next-line no-param-reassign
-            map[proj.id] = proj;
+            map[String(proj.id)] = proj;
             return map;
         }, {}) || {};
 
@@ -149,7 +167,7 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
                                 <TimeEntryItem 
                                     key={entry.id} 
                                     entry={entry} 
-                                    project={projectMap[entry.projectId]} 
+                                    project={projectMap[String(entry.projectId)]} 
                                     projects={projects}
                                     onStartTimer={onStartTimer}
                                     activeTimer={activeTimer}

@@ -6,9 +6,10 @@ import { AddTaskForm } from './AddTaskForm';
 import { TaskItem } from './TaskItem';
 import { FolderHeader } from './FolderHeader';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast';
 import { SortableTaskList } from './SortableTaskList';
 import { AddFolderForm } from './AddFolderForm';
+import { normalizeNullableId } from '../db/id-utils';
 
 export const TodoView = ({ onStartFocus }) => {
     const { appState, setState, clearSelection, addSelectedTask } = useAppContext();
@@ -201,8 +202,8 @@ export const TodoView = ({ onStartFocus }) => {
 
     const handleDragStart = (event) => {
         const { active } = event;
-        const taskId = String(active.id).replace('task-','');
-        const task = tasks.find(t => String(t.id) === taskId);
+            const taskId = String(active.id).replace('task-','');
+            const task = tasks.find(t => String(t.id) === taskId);
         setActiveTask(task);
     };
 
@@ -232,7 +233,7 @@ export const TodoView = ({ onStartFocus }) => {
                             await Promise.all(
                                 existingIds.map((id, index) => 
                                     db.tasks.update(id, { 
-                                        folderId: newFolderId, 
+                                        folderId: normalizeNullableId(newFolderId), 
                                         order: baseOrder + index 
                                     })
                                 )
@@ -257,7 +258,7 @@ export const TodoView = ({ onStartFocus }) => {
         if (String(over.id).startsWith('folder-')) {
             const folderStr = String(over.id).replace('folder-','');
             const newFolderId = folderStr === 'null' ? null : folderStr;
-            await db.tasks.update(activeTaskId, { folderId: newFolderId, order: Date.now() });
+            await db.tasks.update(activeTaskId, { folderId: normalizeNullableId(newFolderId), order: Date.now() });
             return;
         }
         // Dropped over another task (reorder)

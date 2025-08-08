@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../db/db';
+import { normalizeNullableId } from '../db/id-utils';
 import { durationToSeconds, formatDuration } from '../utils/duration';
 import toast from 'react-hot-toast';
 
@@ -58,7 +59,12 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
             setEndTime(null);
             return;
         }
-        const newEnd = new Date(start.getTime() + durationToSeconds(durationInput) * 1000);
+        const durationSecs = durationToSeconds(durationInput);
+        if (!Number.isFinite(durationSecs) || Number.isNaN(durationSecs) || durationSecs <= 0) {
+            setEndTime(null);
+            return;
+        }
+        const newEnd = new Date(start.getTime() + durationSecs * 1000);
         setEndTime(newEnd);
     }, [startDate, startTimeStr, durationInput]);
 
@@ -74,7 +80,7 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
             }
 
             const durationSeconds = durationToSeconds(durationInput.trim());
-            if (durationSeconds <= 0) {
+            if (!Number.isFinite(durationSeconds) || Number.isNaN(durationSeconds) || durationSeconds <= 0) {
                 toast.error('Duration must be greater than 0');
                 return;
             }
@@ -83,7 +89,7 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
 
             await db.timeEntries.update(entry.id, {
                 description: editDescription,
-                projectId: editProjectId ? Number(editProjectId) : null,
+                projectId: normalizeNullableId(editProjectId),
                 startTime: start,
                 endTime: end,
                 duration: durationSeconds,
@@ -143,7 +149,7 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
                             <label className="block text-sm text-muted-foreground mb-1">Project</label>
                             <select
                                 value={editProjectId || ''}
-                                onChange={(e) => setEditProjectId(e.target.value ? Number(e.target.value) : null)}
+                                onChange={(e) => setEditProjectId(e.target.value ? e.target.value : null)}
                                 className="w-full p-2 rounded bg-secondary text-foreground"
                             >
                                 <option value="">No Project</option>

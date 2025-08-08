@@ -24,7 +24,13 @@ const PomodoroView = () => {
         pomodoros: 0,
     });
     
-    const [selectedTarget, setSelectedTarget] = useState('none');
+    const [selectedTarget, setSelectedTarget] = useState(() => {
+        try {
+            return localStorage.getItem('pomodoroSelectedTarget') || 'none';
+        } catch {
+            return 'none';
+        }
+    });
     const { requestNotificationPermission } = useNotifications();
 
     // On component mount, request notification permissions and send current settings to the service worker.
@@ -167,7 +173,9 @@ const PomodoroView = () => {
     );
 
     const handleTargetChange = (e) => {
-        setSelectedTarget(e.target.value);
+        const value = e.target.value;
+        setSelectedTarget(value);
+        try { localStorage.setItem('pomodoroSelectedTarget', value); } catch {}
     };
 
     // Tell the service worker to start or pause the timer.
@@ -182,6 +190,8 @@ const PomodoroView = () => {
         // console.log('[PomodoroView] handleReset');
         navigator.serviceWorker.controller?.postMessage({ command: 'reset', data: { mode }});
     }, [mode]);
+
+    // Time tracking integration is handled globally in App; PomodoroView only manages UI and selection persistence.
 
 
     return (

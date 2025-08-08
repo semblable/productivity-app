@@ -1,94 +1,59 @@
-# Productivity App
+# My Local Planner
 
-## Description
-Personal productivity application for task management, goal tracking, and time optimization. Combines calendar scheduling, pomodoro technique, note-taking, and project management in a single offline-capable interface.
+Local-first productivity app for tasks, calendar, habits, time tracking, notes, and weekly reviews. Works offline via IndexedDB, with optional Dexie Cloud sync and optional Gemini-powered task generation.
 
 ## Features
-- **Dashboard**: Overview of tasks, events, and productivity metrics
-- **Calendar Integration**: Schedule and manage events with daily/weekly views, including support for recurring events.
-- **Pomodoro Timer**: Focus sessions with configurable work/break intervals
-- **Task Management**: Create, prioritize, and track todo items
-- **Project Organization**: Group tasks into projects with progress tracking
-- **Task Folders**:
-  - Create folders within projects to group related tasks.
-  - Drag-and-drop tasks to move them between folders or to reorder them.
-  - Folders display progress bars and completion counts.
-- **Time Tracking**: Log and categorize time spent on activities
-- **Notes System**: Markdown-enabled note taking with categorization
-- **Habit Tracking**: Define and track daily habits, monitor streaks, and visualize progress.
-- **Weekly Reviews**: Reflection and planning tools
-- **Dark/Light Mode**: Theme toggle for preferred viewing
-- **Offline Support**: Local data persistence using IndexedDB
-- **Notifications**: Browser alerts for timers and reminders
+- Tasks with projects and nested folders (drag-and-drop ordering)
+- Calendar with recurring events and event tracking
+- Pomodoro focus timer with notifications (service worker)
+- Time tracking with task/project association
+- Markdown notes with preview and AI task generation (optional)
+- Habits with streaks and heatmap view
+- Weekly review checklist
+- Light/Dark theme
+- Offline-first persistence (IndexedDB)
 
-## Installation
-1. Clone the repository:
-```bash
-git clone https://github.com/semblable/productivity-app.git
-```
-2. Navigate to project directory:
-```bash
-cd productivity-app
-```
-3. Install dependencies:
+## Setup
+1) Install dependencies
 ```bash
 npm install
 ```
-4. Start development server:
+2) (Optional) Create a `.env` file at the project root and add any of the following:
+```ini
+# Dexie Cloud sync (optional)
+REACT_APP_DEXIE_CLOUD_URL=https://YOUR-DB.dexie.cloud
+
+# Gemini task generation (optional)
+REACT_APP_GEMINI_API_KEY=your_api_key_here
+```
+3) Start the app
 ```bash
 npm start
 ```
 
-## Usage
-### Basic Workflow
-1. **Dashboard**: Landing page showing upcoming tasks and calendar events
-2. **Tasks**:
-   - Add new tasks with due dates/priorities
-   - Organize tasks into projects
-   - Mark tasks as complete
-3. **Calendar**:
-   - Switch between day/week/month views
-   - Drag-and-drop event scheduling
-4. **Focus Mode**:
-   - Start pomodoro timer (25min work / 5min break)
-   - Track completed focus sessions
-5. **Time Tracking**:
-   - Manually log time entries
-   - Associate time with projects/tasks
-6. **Notes**:
-   - Create markdown-formatted notes
-   - Organize with tags/projects
+Optional features:
+- Dexie Cloud buttons (Login/Sync/Logout) appear in Tools when `REACT_APP_DEXIE_CLOUD_URL` is set
+- “⚡ Generate Tasks” in Notes appears when `REACT_APP_GEMINI_API_KEY` is set
 
-## Technology Stack
-- **Frontend**: React 18
-- **Styling**: Tailwind CSS
-- **Local Database**: Dexie.js (IndexedDB)
-- **Routing**: React Router
-- **State Management**: React Context
-- **Icons**: SVG-based custom components
-- **Notifications**: Web Notifications API
-- **Build Tools**: Create React App (react-scripts) + PostCSS
+## License
+MIT License
 
-## Cloud Sync (Dexie Cloud)
+Copyright (c) 2025
 
-Optional cloud sync is available via Dexie Cloud.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Setup:
-- Create a Dexie Cloud DB (`npx dexie-cloud create`) and copy the database URL.
-- Create a `.env` file at project root with:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-```
-REACT_APP_DEXIE_CLOUD_URL=https://YOUR-DB.dexie.cloud
-```
-
-Note: For Create React App, env variables must be prefixed with `REACT_APP_`.
-
-Usage:
-- Open the app and use the Tools panel buttons: Cloud Login, Sync Now, Logout.
-
-Docs: [Dexie Cloud](https://dexie.org/cloud/docs/), [db.cloud.configure()](https://dexie.org/cloud/docs/db.cloud.configure()).
-
-## Refactoring
-- **Routing**: The routing logic has been extracted from the main `App` component into a dedicated `AppRoutes.jsx` component for better separation of concerns.
-- **State Management**: Global application state is now managed with React Context, eliminating prop drilling and improving data flow predictability.
-- **Component Decomposition**: The main `App` component has been refactored to be a simple container for the `AppLayout` and `AppProvider`, with the `AppLayout` handling the main page structure and the `AppProvider` managing the application state.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

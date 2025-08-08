@@ -4,6 +4,7 @@ import { db, getDefaultProject } from '../db/db';
 import toast from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { logTimeToProjectGoals } from '../db/time-entry-utils';
+import { normalizeId } from '../db/id-utils';
 
 export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoalId, onStopTimer, initialEvent, onEventConsumed }, ref) => {
     const projects = useLiveQuery(() => db.projects.toArray(), []);
@@ -38,14 +39,18 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
         
         const newTimer = {
             description: desc.trim(),
-            projectId: Number(pId),
+            projectId: normalizeId(pId),
             startTime: Date.now(),
             goalId: activeGoalId || null,
-            eventId: timerData?.eventId || null,
+            eventId: timerData?.eventId ?? trackedEventId ?? null,
         };
         setActiveTimer(newTimer);
         toast.success("Timer started!");
-    }, [description, projectId, projects, activeGoalId, setActiveTimer]);
+        // If this timer started from an event, clear the pending event so it doesn't auto-trigger again
+        if ((timerData?.eventId ?? trackedEventId) && typeof onEventConsumed === 'function') {
+            onEventConsumed();
+        }
+    }, [description, projectId, projects, activeGoalId, setActiveTimer, trackedEventId, onEventConsumed]);
 
     // Expose handleStartTimer to parent component via ref
     useImperativeHandle(ref, () => ({
@@ -61,22 +66,21 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             if (projId) setProjectId(projId);
             setTrackedEventId(initialEvent.id);
 
-            // Automatically start the timer
-            handleStartTimer({ description: desc, projectId: projId, eventId: initialEvent.id });
-
-            // Inform parent that event has been consumed
-            if (typeof onEventConsumed === 'function') {
-                onEventConsumed();
+            // Automatically start the timer only if no active timer is running
+            if (!activeTimer) {
+                handleStartTimer({ description: desc, projectId: projId, eventId: initialEvent.id });
+            } else {
+                toast.error('Stop the current timer first');
             }
         }
-    }, [initialEvent, handleStartTimer, onEventConsumed]);
+    }, [initialEvent, handleStartTimer, activeTimer]);
 
     useEffect(() => {
         if (projects && projects.length > 0 && !projectId) {
             // Try to use last used project from localStorage
             const lastUsedProjectId = localStorage.getItem('lastUsedProjectId');
             if (lastUsedProjectId) {
-                const lastUsedProject = projects.find(p => p.id === Number(lastUsedProjectId));
+                const lastUsedProject = projects.find(p => String(p.id) === String(lastUsedProjectId));
                 if (lastUsedProject) {
                     setProjectId(lastUsedProject.id);
                     return;
@@ -144,21 +148,29 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
 
 
     const handleDurationBlur = () => {
-        const totalSeconds = durationToSeconds(manualDurationInput.trim());
+        const parsed = durationToSeconds(manualDurationInput.trim());
 
-        if (totalSeconds <= 0) {
-            // Reset to default if invalid
-            setManualDurationInput('01:00:00');
+        if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed <= 0) {
+            // Reset to safe default (1 hour) and keep start/end consistent
+            const fallbackSeconds = 3600;
+            setManualDurationInput(formatDuration(fallbackSeconds));
+
+            const startDate = manualStartTime ? new Date(manualStartTime) : new Date();
+            const validStart = !isNaN(startDate.getTime()) ? startDate : new Date();
+            const endDate = new Date(validStart.getTime() + fallbackSeconds * 1000);
+
+            setManualStartTime(formatForInput(validStart));
+            setManualEndTime(formatForInput(endDate));
             return;
         }
 
         // Format back to HH:MM:SS
-        setManualDurationInput(formatDuration(totalSeconds));
+        setManualDurationInput(formatDuration(parsed));
 
         // Update start/end times so they stay in sync with duration
         const startDate = manualStartTime ? new Date(manualStartTime) : new Date();
         const validStart = !isNaN(startDate.getTime()) ? startDate : new Date();
-        const endDate = new Date(validStart.getTime() + totalSeconds * 1000);
+        const endDate = new Date(validStart.getTime() + parsed * 1000);
 
         setManualStartTime(formatForInput(validStart));
         setManualEndTime(formatForInput(endDate));
@@ -260,7 +272,7 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
         try {
             await db.timeEntries.add({
                 description: description.trim(),
-                projectId: Number(finalProjectId),
+                projectId: normalizeId(finalProjectId),
                 startTime: start,
                 endTime: end,
                 duration: durationSeconds,
@@ -292,7 +304,7 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             <select 
                 value={projectId || ''} 
                 onChange={e => {
-                    const newProjectId = Number(e.target.value);
+                    const newProjectId = e.target.value;
                     setProjectId(newProjectId);
                     // Store the last used project
                     if (newProjectId) {

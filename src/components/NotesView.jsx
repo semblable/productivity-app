@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast';
 import debounce from 'lodash.debounce';
 import { Plus, Trash2, Edit2, Eye } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';

@@ -19,7 +19,42 @@ const EventComponent = ({ event }) => {
 };
 
 export const CalendarView = ({ date, view, onNavigate, onView, onSelectSlot, onSelectEvent }) => {
-    const events = useLiveQuery(() => db.events.toArray(), []);
+    // Be resilient to cloud/local aliasing issues by reading from both stores when available and de-duplicating
+    const events = useLiveQuery(async () => {
+        try {
+            const primary = await db.events.toArray();
+
+            // Try to also read from the alternate store if present (handles partial migrations)
+            let extra = [];
+            try {
+                const native = typeof db.backendDB === 'function' ? db.backendDB() : null;
+                const hasLocal = native?.objectStoreNames?.contains?.('events');
+                const hasCloud = native?.objectStoreNames?.contains?.('events_cloud');
+                if (hasLocal && hasCloud) {
+                    // Read both and merge
+                    const localEvents = await db.table('events').toArray();
+                    const cloudEvents = await db.table('events_cloud').toArray();
+                    extra = [...localEvents, ...cloudEvents];
+                }
+            } catch {
+                // ignore
+            }
+
+            const byKey = new Map();
+            const add = (e) => {
+                const startMs = new Date(e.startTime).getTime();
+                const endMs = new Date(e.endTime).getTime();
+                const key = e['@id'] || e.id || `${e.title}|${startMs}|${endMs}|${e.projectId ?? ''}`;
+                if (!byKey.has(key)) byKey.set(key, e);
+            };
+            primary?.forEach(add);
+            extra?.forEach(add);
+            return Array.from(byKey.values());
+        } catch {
+            return [];
+        }
+    }, []);
+
     const projects = useLiveQuery(() => db.projects.toArray(), []);
 
     // console.log('Loaded events from DB:', events);
@@ -29,33 +64,53 @@ export const CalendarView = ({ date, view, onNavigate, onView, onSelectSlot, onS
     }, {}) || {};
     // console.log('Project map:', projectMap);
     
-    const formattedEvents = events?.map(event => ({
-        title: event.title,
-        start: new Date(event.startTime),
-        end: new Date(event.endTime),
-        resource: { ...event, project: projectMap[event.projectId] },
-    })) || [];
+    const toValidDate = (value) => {
+        // Accept Date, number (epoch), or string (ISO/local)
+        try {
+            if (value instanceof Date) return value;
+            const d = new Date(value);
+            return isNaN(d.getTime()) ? null : d;
+        } catch {
+            return null;
+        }
+    };
+
+    const formattedEvents = (events || [])
+        .map((event) => {
+            const start = toValidDate(event.startTime);
+            const end = toValidDate(event.endTime);
+            if (!start || !end) return null;
+            return {
+                title: event.title,
+                start,
+                end,
+                resource: { ...event, project: projectMap[event.projectId] },
+            };
+        })
+        .filter(Boolean);
     // console.log('Formatted events for calendar:', formattedEvents);
     
     const eventPropGetter = (event) => {
-        const project = projectMap[event.resource.projectId];
-        const backgroundColor = project?.color || 'var(--primary)';
-        // A simple algorithm to determine if the text should be light or dark
-        const color = backgroundColor.replace('#', '');
-        const r = parseInt(color.substring(0, 2), 16);
-        const g = parseInt(color.substring(2, 4), 16);
-        const b = parseInt(color.substring(4, 6), 16);
+        const fallbackBg = '#2563eb'; // Tailwind blue-600 as safe default
+        const backgroundColor = projectMap[event.resource.projectId]?.color || fallbackBg;
+        const hex = /^#?[0-9a-fA-F]{6}$/;
+        const hexColor = backgroundColor.startsWith('#') ? backgroundColor : (hex.test(backgroundColor) ? `#${backgroundColor}` : fallbackBg);
+        // Determine readable text color for hex backgrounds
+        const r = parseInt(hexColor.substring(1, 3), 16);
+        const g = parseInt(hexColor.substring(3, 5), 16);
+        const b = parseInt(hexColor.substring(5, 7), 16);
         const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-        const textColor = (yiq >= 128) ? '#020817' : '#fafafa';
+        const textColor = (yiq >= 128) ? '#0b1220' : '#ffffff';
 
         const style = {
-            backgroundColor,
-            borderRadius: 'var(--radius)',
+            backgroundColor: hexColor,
+            borderRadius: '6px',
             color: textColor,
-            border: `1px solid ${backgroundColor}`,
+            border: `1px solid ${hexColor}`,
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
             display: 'block',
-            padding: '2px 5px',
+            padding: '2px 6px',
+            minHeight: '22px',
         };
         return { style };
     };

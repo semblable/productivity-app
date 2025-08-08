@@ -3,6 +3,7 @@ import { db } from '../db/db';
 import toast from 'react-hot-toast';
 import { RRule } from 'rrule';
 import { Plus } from 'lucide-react';
+import { normalizeNullableId } from '../db/id-utils';
 
 export const AddHabitForm = ({ onHabitAdded }) => {
     const [text, setText] = useState('');
@@ -21,7 +22,7 @@ export const AddHabitForm = ({ onHabitAdded }) => {
         e.preventDefault();
         if (!text.trim()) return toast.error("Habit name cannot be empty.");
 
-        const projectId = selectedProjectId ? parseInt(selectedProjectId, 10) : null;
+        const projectId = normalizeNullableId(selectedProjectId);
 
         // Create a daily recurring task for this habit
         const rule = new RRule({

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { scheduleNotification } from '../hooks/useNotifications';
 import { RecurrenceModal } from './RecurrenceModal';
+import { normalizeId } from '../db/id-utils';
 
 export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTracking }) => {
     const [title, setTitle] = useState('');
@@ -133,7 +134,7 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
 
         const eventToSave = {
             title: title.trim(),
-            projectId: Number(projectId),
+            projectId: normalizeId(projectId),
             startTime: start,
             endTime: end,
             rrule: rruleString,

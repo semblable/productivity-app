@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import toast from 'react-hot-toast';
 import { db, projectColors } from '../db/db';
+import { normalizeNullableId } from '../db/id-utils';
 import { Plus, Trash2, Play, Edit } from 'lucide-react';
 
 export const ProjectManager = ({ onStartGoalTimer }) => {
@@ -98,7 +99,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
             deadline: deadline || null,
             progress,
             createdAt: new Date(),
-            projectId: goalProjectId ? Number(goalProjectId) : null,
+            projectId: normalizeNullableId(goalProjectId),
         };
         
         try {
@@ -116,15 +117,16 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
         }
     };
     
-    // Log hours to an existing goal
+    // Log hours to an existing goal (centralized via time-entry utils)
     const logHours = async (goalId, hours) => {
         try {
-            const goal = await db.timeGoals.get(goalId);
-            if (goal) {
-                const newActualHours = goal.actualHours + parseFloat(hours);
-                const progress = Math.min(100, Math.round((newActualHours / goal.targetHours) * 100));
-                await db.timeGoals.update(goalId, { actualHours: newActualHours, progress });
+            const seconds = Math.round(parseFloat(hours) * 3600);
+            if (!isNaN(seconds) && seconds > 0) {
+                const { logTimeToGoal } = await import('../db/time-entry-utils');
+                await logTimeToGoal(goalId, seconds);
                 toast.success("Hours logged!");
+            } else {
+                toast.error("Please enter a valid number of hours.");
             }
         } catch (error) {
             console.error("Failed to log hours:", error);
@@ -251,7 +253,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                 actualHours: completed,
                 deadline: deadline || null,
                 progress,
-                projectId: projectId ? Number(projectId) : null,
+                projectId: normalizeNullableId(projectId),
             });
             toast.success("Goal updated!");
             closeEditModal();
@@ -488,11 +490,17 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                                 <span>Progress</span>
                                                 <span>{goal.progress}%</span>
                                             </div>
-                                            <div className="w-full bg-background rounded-full h-1.5">
+                                            <div
+                                                className="w-full bg-muted rounded-full h-2 relative overflow-hidden"
+                                                role="progressbar"
+                                                aria-valuemin={0}
+                                                aria-valuemax={100}
+                                                aria-valuenow={goal.progress}
+                                            >
                                                 <div
-                                                    className="bg-accent h-1.5 rounded-full"
+                                                    className="bg-primary h-2 rounded-full transition-all duration-300"
                                                     style={{ width: `${goal.progress}%` }}
-                                                ></div>
+                                                />
                                             </div>
                                         </div>
                                         

@@ -176,39 +176,27 @@ db.version(27).stores({
 
 // --- Compatibility alias ---
 // Older components may still reference db.timeGoals. Point it to the new goals table
-try {
-  db.timeGoals = db.table('goals');
-} catch (e) {
-  // ignore
-}
+db.timeGoals = db.table('goals');
 
-// If one-time cloud migration has been completed, alias legacy tables to their cloud counterparts.
-// Do this only after database is open and stores physically exist to avoid NotFoundError.
-const aliasLegacyToCloudIfAvailable = () => {
-  const cloudIdsMigrated = typeof window !== 'undefined' && window?.localStorage?.getItem('cloudIdsMigrated') === '1';
-  if (!cloudIdsMigrated) return;
+// If one-time cloud migration has been completed, alias legacy tables to their cloud counterparts
+const cloudIdsMigrated = typeof window !== 'undefined' && window?.localStorage?.getItem('cloudIdsMigrated') === '1';
+if (cloudIdsMigrated) {
   try {
-    const nativeDb = typeof db.backendDB === 'function' ? db.backendDB() : null;
-    const hasStore = (name) => Boolean(nativeDb?.objectStoreNames?.contains?.(name));
-    if (hasStore('projects_cloud')) db.projects = db.table('projects_cloud');
-    if (hasStore('folders_cloud')) db.folders = db.table('folders_cloud');
-    if (hasStore('tasks_cloud')) db.tasks = db.table('tasks_cloud');
-    if (hasStore('events_cloud')) db.events = db.table('events_cloud');
-    if (hasStore('goals_cloud')) db.goals = db.table('goals_cloud');
-    if (hasStore('timeEntries_cloud')) db.timeEntries = db.table('timeEntries_cloud');
-    if (hasStore('habits_cloud')) db.habits = db.table('habits_cloud');
-    if (hasStore('habit_completions_cloud')) db.habit_completions = db.table('habit_completions_cloud');
-    if (hasStore('notes_cloud')) db.notes = db.table('notes_cloud');
+    if (db.tables.some(t => t.name === 'projects_cloud')) db.projects = db.table('projects_cloud');
+    if (db.tables.some(t => t.name === 'folders_cloud')) db.folders = db.table('folders_cloud');
+    if (db.tables.some(t => t.name === 'tasks_cloud')) db.tasks = db.table('tasks_cloud');
+    if (db.tables.some(t => t.name === 'events_cloud')) db.events = db.table('events_cloud');
+    if (db.tables.some(t => t.name === 'goals_cloud')) {
+      db.goals = db.table('goals_cloud');
+      // Keep backward compatibility for components referencing timeGoals
+      db.timeGoals = db.table('goals_cloud');
+    }
+    if (db.tables.some(t => t.name === 'timeEntries_cloud')) db.timeEntries = db.table('timeEntries_cloud');
+    if (db.tables.some(t => t.name === 'habits_cloud')) db.habits = db.table('habits_cloud');
+    if (db.tables.some(t => t.name === 'habit_completions_cloud')) db.habit_completions = db.table('habit_completions_cloud');
+    if (db.tables.some(t => t.name === 'notes_cloud')) db.notes = db.table('notes_cloud');
   } catch (e) {
-    // ignore
-  }
-};
-
-if (typeof window !== 'undefined') {
-  if (db.isOpen()) {
-    aliasLegacyToCloudIfAvailable();
-  } else {
-    db.open().then(aliasLegacyToCloudIfAvailable).catch(() => {});
+    // Ignore aliasing errors
   }
 }
 

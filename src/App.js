@@ -5,12 +5,12 @@ import {
   NavLink,
   useNavigate,
 } from 'react-router-dom';
-import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+// Removed react-toastify in favor of react-hot-toast
 import { useLiveQuery } from 'dexie-react-hooks';
 import { RRule } from 'rrule';
 import { format } from 'date-fns';
 import { Toaster as HotToaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 
 // Import all views and components
 import { AddEventModal } from './components/AddEventModal';
@@ -26,13 +26,14 @@ import { checkBrokenStreaks } from './db/habit-utils';
 import { ProjectManager } from './components/ProjectManager';
 import UserGuide from './components/UserGuide';
 import { AppProvider, useAppContext } from './context/AppContext';
+import { logTimeToProjectGoals, logTimeToGoal } from './db/time-entry-utils';
 
 
 // A wrapper component to contain the main layout and navigation
 function AppLayout() {
     const navigate = useNavigate();
     const { appState, setState } = useAppContext();
-    const { focusTaskId, showWeeklyReview, isModalOpen, modalEventData, showUserGuide } = appState;
+  const { focusTaskId, showWeeklyReview, isModalOpen, modalEventData, showUserGuide } = appState;
 
     const recurrenceCheckInProgress = useRef(false);
 
@@ -45,6 +46,140 @@ function AppLayout() {
         handleRecurrence();
         checkBrokenStreaks();
     }, []);
+
+  // Global listener for Pomodoro SW status to coordinate time tracking even when on other routes
+  const lastStatusRef = useRef({ mode: null, timerState: null, pomodoros: -1 });
+  const trackingRef = useRef({ active: false, pomodoroCount: -1 });
+  const appStateRef = useRef(appState);
+
+  useEffect(() => {
+      appStateRef.current = appState;
+  }, [appState]);
+
+  useEffect(() => {
+      if (!('serviceWorker' in navigator)) return;
+
+      const handleMessage = async (event) => {
+          const { type, mode, timerState, pomodoros } = event.data || {};
+          if (type !== 'status') return;
+
+          const prev = lastStatusRef.current;
+          const curr = { mode, timerState, pomodoros };
+          const isPomodoro = mode === 'pomodoro';
+          const isRunning = timerState === 'running';
+          const activeTimer = appStateRef.current.activeTimer;
+          const hasNonPomodoroTimer = !!activeTimer && activeTimer.origin !== 'pomodoro';
+
+          const enteringRunningPomodoro = isPomodoro && isRunning && !(prev.mode === 'pomodoro' && prev.timerState === 'running');
+
+          // If a non-pomodoro timer is running, never auto-start/stop
+          if (hasNonPomodoroTimer) {
+              lastStatusRef.current = curr;
+              return;
+          }
+
+          // Ensure trackingRef reflects persisted activeTimer on mount
+          if (!trackingRef.current.active && activeTimer && activeTimer.origin === 'pomodoro') {
+              trackingRef.current.active = true;
+              trackingRef.current.pomodoroCount = pomodoros;
+          }
+
+          // Start when entering running Pomodoro and not already tracking
+          if (enteringRunningPomodoro && !trackingRef.current.active) {
+              try {
+                  const selectedTarget = localStorage.getItem('pomodoroSelectedTarget') || 'none';
+                  if (selectedTarget === 'none') {
+                      lastStatusRef.current = curr;
+                      return;
+                  }
+                  // Build context
+                  let description = 'Pomodoro';
+                  let projectId = null;
+                  let goalId = null;
+                  let taskId = null;
+
+                  const [kind, idStr] = selectedTarget.split(':');
+                  const id = idStr;
+                  if (kind === 'goal' && id) {
+                      const goal = await db.goals.get(id);
+                      if (goal) {
+                          description = `Pomodoro - ${goal.description}`;
+                          goalId = goal.id;
+                          projectId = goal.projectId || null;
+                      }
+                  } else if (kind === 'project' && id) {
+                      const proj = await db.projects.get(id);
+                      if (proj) {
+                          description = `Pomodoro - ${proj.name}`;
+                          projectId = proj.id;
+                      }
+                  } else if (kind === 'task' && id) {
+                      const task = await db.tasks.get(id);
+                      if (task) {
+                          description = `Pomodoro - ${task.text}`;
+                          taskId = task.id;
+                          projectId = task.projectId || null;
+                      }
+                  }
+
+                  setState({
+                      activeTimer: {
+                          description,
+                          projectId,
+                          goalId,
+                          taskId,
+                          startTime: Date.now(),
+                          origin: 'pomodoro',
+                      }
+                  });
+                  trackingRef.current.active = true;
+                  trackingRef.current.pomodoroCount = pomodoros;
+                  toast.success('Started tracking Pomodoro');
+              } catch {}
+          }
+
+          // Finalize when Pomodoro no longer running or mode changes (break/reset)
+          if (trackingRef.current.active && (!isPomodoro || !isRunning)) {
+              const active = appStateRef.current.activeTimer;
+              if (active && active.origin === 'pomodoro') {
+                  const endMs = Date.now();
+                  const duration = Math.max(0, Math.floor((endMs - (active.startTime || endMs)) / 1000));
+                  if (duration > 0) {
+                      try {
+                          await db.timeEntries.add({
+                              description: active.description,
+                              projectId: active.projectId || null,
+                              goalId: active.goalId || null,
+                              taskId: active.taskId || null,
+                              startTime: new Date(active.startTime),
+                              endTime: new Date(endMs),
+                              duration,
+                          });
+                          if (active.projectId) {
+                              await logTimeToProjectGoals(active.projectId, duration, active.goalId || null);
+                          }
+                          if (active.goalId) {
+                              await logTimeToGoal(active.goalId, duration);
+                          }
+                          toast.success('Pomodoro time logged');
+                      } catch (e) {
+                          console.error('Failed to log Pomodoro time:', e);
+                          toast.error('Failed to log Pomodoro time');
+                      }
+                  }
+              }
+              setState({ activeTimer: null });
+              trackingRef.current.active = false;
+              trackingRef.current.pomodoroCount = -1;
+          }
+
+          lastStatusRef.current = curr;
+      };
+
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+      navigator.serviceWorker.controller?.postMessage({ command: 'getStatus' });
+      return () => navigator.serviceWorker.removeEventListener('message', handleMessage);
+  }, [setState]);
 
     useEffect(() => {
         if (appState.activeTimer) {
@@ -271,9 +406,7 @@ function AppLayout() {
 
     return (
         <div className="bg-background min-h-screen text-foreground font-sans">
-            {/* Toastify notifications (legacy) */}
-            <ToastContainer />
-            {/* react-hot-toast notifications used by DataTools and newer components */}
+            {/* Global notifications (react-hot-toast) */}
             <HotToaster position="top-right" />
             
             <header className="bg-secondary shadow-md sticky top-0 z-10">

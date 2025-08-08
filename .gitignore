@@ -33,3 +33,17 @@ dexie-cloud.key
 # Editor folders
 .vscode/
 .idea/
+
+# OS artifacts
+Thumbs.db
+
+# Tooling caches
+.eslintcache
+
+# Local backups/exports
+planner-backup-*.json
+*.backup.json
+*.bak
+*.tmp
+*.swp
+*.swo

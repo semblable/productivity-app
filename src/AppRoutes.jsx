@@ -9,7 +9,7 @@ import PomodoroView from './components/PomodoroView';
 import HabitsView from './components/HabitsView';
 import { IvyLeeWrapper } from './App';
 import { useAppContext } from './context/AppContext';
-import { db } from './db/db';
+import { logTimeToGoal } from './db/time-entry-utils';
 
 export function AppRoutes({ handleStartFocus, handleSelectSlot, handleSelectEvent }) {
   const { appState, setState } = useAppContext();
@@ -35,23 +35,9 @@ export function AppRoutes({ handleStartFocus, handleSelectSlot, handleSelectEven
             activeGoalId={activeGoalId}
             eventToTrack={eventToTrack}
             clearEventToTrack={() => setState({ eventToTrack: null })}
-            onStopTimer={(duration) => {
-              if (activeGoalId) {
-                db.timeGoals
-                  .where({ id: activeGoalId })
-                  .first()
-                  .then((goal) => {
-                    if (goal) {
-                      const newActualHours = goal.actualHours + duration / 3600;
-                      db.timeGoals.update(activeGoalId, {
-                        actualHours: newActualHours,
-                        progress: Math.min(
-                          100,
-                          Math.round((newActualHours / goal.targetHours) * 100)
-                        ),
-                      });
-                    }
-                  });
+            onStopTimer={async (duration) => {
+              if (activeGoalId && duration > 0) {
+                await logTimeToGoal(activeGoalId, duration);
                 setState({ activeGoalId: null });
               }
             }}

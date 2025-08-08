@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useGeminiTaskify } from '../hooks/useGeminiTaskify';
 import { bulkAddTasks } from '../db/bulkAddTasks';
 import { db } from '../db/db';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast';
 import { prepareFoldersForDisplay } from '../utils/folderDisplay';
+import { normalizeId } from '../db/id-utils';
 
 export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
   const projects = useLiveQuery(() => db.projects.toArray(), []);
@@ -14,7 +15,7 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
   const [folderId, setFolderId] = useState('');
   const [enhance, setEnhance] = useState(false);
 
-  const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: Number(projectId) }).toArray() : [], [projectId]);
+  const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: normalizeId(projectId) }).toArray() : [], [projectId]);
 
   // Create project map and prepare folders with hierarchy display
   const projectMap = useMemo(() => {
@@ -48,7 +49,7 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
 
   const handleImport = async () => {
     try {
-      await bulkAddTasks(tasksTree, Number(projectId), folderId ? Number(folderId) : null);
+      await bulkAddTasks(tasksTree, normalizeId(projectId), folderId ? normalizeId(folderId) : null);
       toast.success('Tasks imported successfully');
       onClose();
     } catch (err) {

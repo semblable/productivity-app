@@ -1,5 +1,5 @@
 import { db } from './db';
-import { toast } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { format, differenceInCalendarDays, subDays } from 'date-fns';
 
 async function _recalculateAndUpdateHabit(habitId) {

@@ -1,4 +1,5 @@
 import { db } from './db';
+import { normalizeId, normalizeNullableId } from './id-utils';
 
 /**
  * Recursively add a tree of tasks to Dexie in a single transaction.
@@ -30,8 +31,8 @@ export const bulkAddTasks = async (tree = [], projectId, folderId = null) => {
   // Convert root nodes into task rows for Dexie. Sub-tasks are embedded, not separate rows.
   const tasksToInsert = tree.map((node, idx) => ({
     text: node.text || '',
-    projectId,
-    folderId,
+    projectId: normalizeId(projectId),
+    folderId: normalizeNullableId(folderId),
     order: idx,
     parentId: null,
     completed: false,

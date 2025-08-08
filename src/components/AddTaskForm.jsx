@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
 import { RecurrenceModal } from './RecurrenceModal';
 import { prepareFoldersForDisplay } from '../utils/folderDisplay';
-import { normalizeNullableId } from '../db/id-utils';
+import { normalizeId, normalizeNullableId } from '../db/id-utils';
 
 const priorityLevels = {
     0: 'None',
@@ -45,7 +45,7 @@ export const AddTaskForm = ({ projects }) => {
       e.preventDefault();
      if (!text.trim()) return toast.error("Task text cannot be empty.");
      
-     const finalProjectId = normalizeNullableId(projectId);
+      const finalProjectId = normalizeNullableId(projectId);
 
      let rruleString = rrule ? rrule.toString() : null;
 
@@ -58,8 +58,8 @@ export const AddTaskForm = ({ projects }) => {
                  projectId: finalProjectId,
         folderId: normalizeNullableId(folderId),
         order: 0,
-        priority: Number(priority),
-         goalId: goalId === 'none' ? null : Number(goalId),
+         priority: Number(priority),
+         goalId: goalId === 'none' ? null : normalizeId(goalId),
          rrule: rruleString,
          parentId: null,
          templateId: null, // Regular tasks are not instances of templates
