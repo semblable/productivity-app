@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
 import { RecurrenceModal } from './RecurrenceModal';
 import { prepareFoldersForDisplay } from '../utils/folderDisplay';
+import { normalizeNullableId } from '../db/id-utils';
 
 const priorityLevels = {
     0: 'None',
@@ -26,7 +27,7 @@ export const AddTaskForm = ({ projects }) => {
    const [rrule, setRrule] = useState(null);
 
    const goals = useLiveQuery(() => db.goals.toArray(), []);
-   const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: Number(projectId) }).toArray() : [], [projectId]);
+   const folders = useLiveQuery(() => projectId ? db.folders.toArray().then(all => all.filter(f=> String(f.projectId)===String(projectId))) : [], [projectId]);
 
    // Create project map and prepare folders with hierarchy display
    const projectMap = useMemo(() => {
@@ -44,18 +45,18 @@ export const AddTaskForm = ({ projects }) => {
       e.preventDefault();
      if (!text.trim()) return toast.error("Task text cannot be empty.");
      
-     const finalProjectId = projectId ? Number(projectId) : null;
+     const finalProjectId = normalizeNullableId(projectId);
 
      let rruleString = rrule ? rrule.toString() : null;
 
      try {
-       const newTaskId = await db.tasks.add({
+         const newTaskId = await db.tasks.add({
          text: text.trim(),
          completed: false,
          createdAt: new Date(),
          dueDate: dueDate ? new Date(dueDate) : null,
                  projectId: finalProjectId,
-        folderId: folderId ? Number(folderId) : null,
+        folderId: normalizeNullableId(folderId),
         order: 0,
         priority: Number(priority),
          goalId: goalId === 'none' ? null : Number(goalId),
@@ -72,6 +73,7 @@ export const AddTaskForm = ({ projects }) => {
             streak: 0,
             bestStreak: 0,
             lastCompletionDate: null,
+            streakFreezes: 0,
             streakFriezes: 0,
             lastStreakMilestone: 0
          });

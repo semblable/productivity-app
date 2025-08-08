@@ -54,8 +54,9 @@ export const useNotifications = () => {
           
           // Check if we've already shown this notification
           if (!localStorage.getItem(notificationKey)) {
+            const taskName = task.text || 'Task';
             new Notification('Task Due Soon', {
-              body: `"${task.title}" is due in ${Math.ceil(timeDiff / (1000 * 60))} minutes`,
+              body: `"${taskName}" is due in ${Math.ceil(timeDiff / (1000 * 60))} minutes`,
               icon: '/favicon.ico',
               tag: notificationKey
             });

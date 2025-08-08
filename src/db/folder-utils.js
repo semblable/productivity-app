@@ -1,4 +1,5 @@
 import { db } from './db';
+import { normalizeNullableId } from './id-utils';
 
 /**
  * Create a new folder inside a project.
@@ -7,7 +8,7 @@ import { db } from './db';
  */
 export const createFolder = async ({ name, projectId, parentId = null, color }) => {
   const createdAt = new Date();
-  return db.folders.add({ name, projectId, parentId, color, createdAt });
+  return db.folders.add({ name, projectId: normalizeNullableId(projectId), parentId: normalizeNullableId(parentId), color, createdAt });
 };
 
 /**
@@ -64,4 +65,4 @@ export const deleteFolder = async (id, { cascade = false } = {}) => {
  * @param {number} projectId
  */
 export const getFoldersForProject = (projectId) =>
-  db.folders.where({ projectId }).toArray();
+  db.folders.where({ projectId: normalizeNullableId(projectId) }).toArray();

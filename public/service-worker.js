@@ -133,3 +133,12 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   event.respondWith(fetch(event.request));
 });
+
+// Dexie Cloud SW support
+try {
+  // If available, import Dexie Cloud SW helper to handle sync/periodic sync
+  // This is safe even if not present; failures are caught.
+  importScripts('dexie-cloud-addon/dist/umd/service-worker.min.js');
+} catch (e) {
+  // ignore if not available in dev
+}

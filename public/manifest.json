@@ -29,6 +29,7 @@
   "categories": ["productivity", "business", "utilities"],
   "lang": "en",
   "scope": "/",
+  "prefer_related_applications": false,
   "shortcuts": [
     {
       "name": "Add Task",

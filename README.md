@@ -23,21 +23,21 @@ Personal productivity application for task management, goal tracking, and time o
 
 ## Installation
 1. Clone the repository:
-`bash
+```bash
 git clone https://github.com/semblable/productivity-app.git
-`
+```
 2. Navigate to project directory:
-`bash
+```bash
 cd productivity-app
-`
+```
 3. Install dependencies:
-`bash
+```bash
 npm install
-`
+```
 4. Start development server:
-`bash
+```bash
 npm start
-`
+```
 
 ## Usage
 ### Basic Workflow
@@ -68,6 +68,25 @@ npm start
 - **Icons**: SVG-based custom components
 - **Notifications**: Web Notifications API
 - **Build Tools**: Create React App (react-scripts) + PostCSS
+
+## Cloud Sync (Dexie Cloud)
+
+Optional cloud sync is available via Dexie Cloud.
+
+Setup:
+- Create a Dexie Cloud DB (`npx dexie-cloud create`) and copy the database URL.
+- Create a `.env` file at project root with:
+
+```
+REACT_APP_DEXIE_CLOUD_URL=https://YOUR-DB.dexie.cloud
+```
+
+Note: For Create React App, env variables must be prefixed with `REACT_APP_`.
+
+Usage:
+- Open the app and use the Tools panel buttons: Cloud Login, Sync Now, Logout.
+
+Docs: [Dexie Cloud](https://dexie.org/cloud/docs/), [db.cloud.configure()](https://dexie.org/cloud/docs/db.cloud.configure()).
 
 ## Refactoring
 - **Routing**: The routing logic has been extracted from the main `App` component into a dedicated `AppRoutes.jsx` component for better separation of concerns.

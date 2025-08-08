@@ -50,6 +50,7 @@ export const AddHabitForm = ({ onHabitAdded }) => {
                 streak: 0,
                 bestStreak: 0,
                 lastCompletionDate: null,
+                streakFreezes: 0,
                 streakFriezes: 0,
                 lastStreakMilestone: 0,
                 projectId: projectId

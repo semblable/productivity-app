@@ -25,3 +25,11 @@ yarn-error.log*
 
 # startup scripts
 start-app.bat
+
+# Dexie Cloud secrets
+dexie-cloud.json
+dexie-cloud.key
+
+# Editor folders
+.vscode/
+.idea/

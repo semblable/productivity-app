@@ -123,7 +123,7 @@ const HabitItem = ({ habit, allProjects }) => {
                 <div>
                     <h2 className="text-lg font-semibold">{habit.name}</h2>
                     <p className="text-sm text-muted-foreground">Best Streak: {habit.bestStreak || 0} days</p>
-                    <p className="text-xs text-muted-foreground mt-1">Freezes: {habit.streakFriezes || 0} ❄️</p>
+                    <p className="text-xs text-muted-foreground mt-1">Freezes: {(habit.streakFreezes ?? habit.streakFriezes) || 0} ❄️</p>
                 </div>
                 <div className="flex items-center gap-2 md:gap-4">
                     <div className="text-right">

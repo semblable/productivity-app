@@ -27,7 +27,7 @@ const getNoteTitle = (note) => {
 };
 
 export const NotesView = () => {
-    const notes = useLiveQuery(() => db.notes.orderBy('modifiedAt').reverse().toArray(), []);
+    const notes = useLiveQuery(() => (db.notes || db.notes_cloud).orderBy('modifiedAt').reverse().toArray(), []);
     const [activeNote, setActiveNote] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [viewMode, setViewMode] = useState('view'); // 'edit' or 'view'
@@ -43,14 +43,16 @@ export const NotesView = () => {
             createdAt: new Date(),
             modifiedAt: new Date(),
         };
-        const id = await db.notes.add(newNote);
+        const target = db.notes || db.notes_cloud;
+        const id = await target.add(newNote);
         setActiveNote({ ...newNote, id });
         setViewMode('edit'); // Switch to edit mode for new note
     };
 
     const updateNoteInDb = (id, content) => {
         if (id) {
-            db.notes.update(id, { content, modifiedAt: new Date() }).then(() => {
+            const target = db.notes || db.notes_cloud;
+            target.update(id, { content, modifiedAt: new Date() }).then(() => {
                 setIsSaving(false);
             });
         }
@@ -71,7 +73,8 @@ export const NotesView = () => {
     }, [activeNote, debouncedUpdate]);
 
     const deleteNote = async (id) => {
-        await db.notes.delete(id);
+        const target = db.notes || db.notes_cloud;
+        await target.delete(id);
         toast.success("Note deleted.");
         if (activeNote && activeNote.id === id) {
             setActiveNote(null);

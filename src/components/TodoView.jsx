@@ -12,7 +12,10 @@ import { AddFolderForm } from './AddFolderForm';
 
 export const TodoView = ({ onStartFocus }) => {
     const { appState, setState, clearSelection, addSelectedTask } = useAppContext();
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
+    const Projects = db.projects;
+    const Tasks = db.tasks;
+    const Folders = db.folders;
+    const projects = useLiveQuery(() => Projects.toArray(), []);
     
     // Local UI state for filters / search
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,7 +31,7 @@ export const TodoView = ({ onStartFocus }) => {
 
     // Custom sorting: priority(desc) then creation date(desc)
     const tasks = useLiveQuery(async () => {
-        const all = await db.tasks.orderBy('createdAt').reverse().toArray();
+        const all = await Tasks.orderBy('createdAt').reverse().toArray();
         // Filter out template tasks (those with rrule but no templateId) and database-level subtasks
         const topLevel = all.filter(t => {
             // Hide recurring templates (tasks with rrule but no templateId)
@@ -46,9 +49,10 @@ export const TodoView = ({ onStartFocus }) => {
     }, {}) || {};
 
     // Folders for the selected project (if any)
-    const folders = useLiveQuery(() => {
-        if (projectFilter === 'all') return db.folders.toArray();
-        return db.folders.where({ projectId: Number(projectFilter) }).toArray();
+    const folders = useLiveQuery(async () => {
+        const all = await Folders.toArray();
+        if (projectFilter === 'all') return all;
+        return all.filter(f => String(f.projectId) === String(projectFilter));
     }, [projectFilter]);
 
     // Reset folder filter when switching projects or to 'all'
@@ -197,8 +201,8 @@ export const TodoView = ({ onStartFocus }) => {
 
     const handleDragStart = (event) => {
         const { active } = event;
-        const taskId = Number(String(active.id).replace('task-',''));
-        const task = tasks.find(t => t.id === taskId);
+        const taskId = String(active.id).replace('task-','');
+        const task = tasks.find(t => String(t.id) === taskId);
         setActiveTask(task);
     };
 
@@ -212,7 +216,7 @@ export const TodoView = ({ onStartFocus }) => {
         if (appState.multiSelectMode && appState.selectedTaskIds.size > 0) {
             if (String(over.id).startsWith('folder-')) {
                 const folderStr = String(over.id).replace('folder-','');
-                const newFolderId = folderStr === 'null' ? null : Number(folderStr);
+                const newFolderId = folderStr === 'null' ? null : folderStr;
                 const idsToMove = Array.from(appState.selectedTaskIds);
                 
                 try {
@@ -247,22 +251,22 @@ export const TodoView = ({ onStartFocus }) => {
 
         // ---- Single-item logic (unchanged) ----
         if (active.id === over.id) return;
-        const activeTaskId = Number(String(active.id).replace('task-',''));
+        const activeTaskId = String(active.id).replace('task-','');
 
         // If dropped on folder header
         if (String(over.id).startsWith('folder-')) {
             const folderStr = String(over.id).replace('folder-','');
-            const newFolderId = folderStr === 'null' ? null : Number(folderStr);
+            const newFolderId = folderStr === 'null' ? null : folderStr;
             await db.tasks.update(activeTaskId, { folderId: newFolderId, order: Date.now() });
             return;
         }
         // Dropped over another task (reorder)
         if (String(over.id).startsWith('task-')) {
-            const overTaskId = Number(String(over.id).replace('task-',''));
+            const overTaskId = String(over.id).replace('task-','');
             
             // This is a complex calculation, so we get all tasks to be safe
             const allTasks = await db.tasks.toArray();
-            const overTask = allTasks.find(t => t.id === overTaskId);
+            const overTask = allTasks.find(t => String(t.id) === overTaskId);
             if (!overTask) return;
 
             // Find tasks in the same list (same folderId)
@@ -358,7 +362,7 @@ export const TodoView = ({ onStartFocus }) => {
 
         taskListContent = Object.entries(groupedByProject).map(([projectId, { ungrouped, byFolder }]) => {
             const project = projectMap[projectId];
-            const projectFolders = folders?.filter(f => f.projectId === Number(projectId)) || [];
+            const projectFolders = folders?.filter(f => String(f.projectId) === String(projectId)) || [];
             
             return (
                 <div key={projectId} className="mb-6">

@@ -1,6 +1,7 @@
 import Dexie from 'dexie';
+import dexieCloud from 'dexie-cloud-addon';
 
-export const db = new Dexie('myLocalPlannerApp');
+export const db = new Dexie('myLocalPlannerApp', { addons: [dexieCloud] });
 
 // Version 2 (legacy)
 db.version(2).stores({
@@ -156,9 +157,60 @@ db.version(25).stores({
   if (!('templateId' in e)) e.templateId = null;
 }));
 
+// Version 26 - Introduce cloud-ready notes with string primary key (no upgrade/populate per cloud best practices)
+db.version(26).stores({
+  notes_cloud: '@id, title, content, createdAt, modifiedAt'
+});
+
+// Version 27 - Add cloud-ready tables (string PK) for remaining entities
+db.version(27).stores({
+  projects_cloud: '@id, legacyId, name, createdAt',
+  folders_cloud: '@id, legacyId, name, projectId, parentId, createdAt, color',
+  tasks_cloud: '@id, legacyId, text, projectId, completed, createdAt, goalId, parentId, folderId, order, templateId',
+  events_cloud: '@id, legacyId, title, startTime, endTime, rrule, parentId, lastInstance, projectId, templateId',
+  goals_cloud: '@id, legacyId, description, type, target, actual, targetHours, actualHours, progress, createdAt, projectId',
+  timeEntries_cloud: '@id, legacyId, description, startTime, endTime, goalId, projectId, taskId, eventId',
+  habits_cloud: '@id, legacyId, taskId, name, startDate, streak, bestStreak, lastCompletionDate, streakFriezes, streakFreezes, lastStreakMilestone, projectId',
+  habit_completions_cloud: '@id, legacyId, habitId, date, [habitId+date]'
+});
+
 // --- Compatibility alias ---
 // Older components may still reference db.timeGoals. Point it to the new goals table
-db.timeGoals = db.table('goals');
+try {
+  db.timeGoals = db.table('goals');
+} catch (e) {
+  // ignore
+}
+
+// If one-time cloud migration has been completed, alias legacy tables to their cloud counterparts.
+// Do this only after database is open and stores physically exist to avoid NotFoundError.
+const aliasLegacyToCloudIfAvailable = () => {
+  const cloudIdsMigrated = typeof window !== 'undefined' && window?.localStorage?.getItem('cloudIdsMigrated') === '1';
+  if (!cloudIdsMigrated) return;
+  try {
+    const nativeDb = typeof db.backendDB === 'function' ? db.backendDB() : null;
+    const hasStore = (name) => Boolean(nativeDb?.objectStoreNames?.contains?.(name));
+    if (hasStore('projects_cloud')) db.projects = db.table('projects_cloud');
+    if (hasStore('folders_cloud')) db.folders = db.table('folders_cloud');
+    if (hasStore('tasks_cloud')) db.tasks = db.table('tasks_cloud');
+    if (hasStore('events_cloud')) db.events = db.table('events_cloud');
+    if (hasStore('goals_cloud')) db.goals = db.table('goals_cloud');
+    if (hasStore('timeEntries_cloud')) db.timeEntries = db.table('timeEntries_cloud');
+    if (hasStore('habits_cloud')) db.habits = db.table('habits_cloud');
+    if (hasStore('habit_completions_cloud')) db.habit_completions = db.table('habit_completions_cloud');
+    if (hasStore('notes_cloud')) db.notes = db.table('notes_cloud');
+  } catch (e) {
+    // ignore
+  }
+};
+
+if (typeof window !== 'undefined') {
+  if (db.isOpen()) {
+    aliasLegacyToCloudIfAvailable();
+  } else {
+    db.open().then(aliasLegacyToCloudIfAvailable).catch(() => {});
+  }
+}
 
 export const projectColors = [
   '#FF5252',
@@ -178,3 +230,30 @@ export const getDefaultProject = async () => {
   }
   return { id: 1, name: 'Default Project', color: '#CCCCCC' };
 };
+
+// Configure Dexie Cloud if environment is provided
+const cloudUrl = process.env.REACT_APP_DEXIE_CLOUD_URL;
+if (cloudUrl) {
+  db.cloud.configure({
+    databaseUrl: cloudUrl,
+    requireAuth: false,
+    tryUseServiceWorker: true,
+    periodicSync: { minInterval: 15 * 60 * 1000 },
+    // Temporary: keep numeric-PK tables local-only until we migrate to string @id per best practices
+    // See: https://dexie.org/cloud/docs/best-practices
+    unsyncedTables: [
+      'projects',
+      'tasks',
+      'goals',
+      'timeEntries',
+      'events',
+      // Keep legacy tables local-only to allow importing older backups safely
+      'notes',
+      'habits',
+      'habit_completions',
+      'folders',
+    ],
+    // Start syncing the migrated cloud-ready table
+    // (no need to list synced tables; removing from unsynced enables sync)
+  });
+}
