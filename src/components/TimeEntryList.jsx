@@ -4,17 +4,18 @@ import { TimeEntryItem } from './TimeEntryItem';
 import { useState } from 'react';
 
 export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
-    const [filter, setFilter] = useState('today'); // 'today', 'week', 'month', 'all', 'custom'
+    const [filter, setFilter] = useState('week'); // 'today', 'week', 'month', 'all', 'custom'
     const [customRange, setCustomRange] = useState({
         start: new Date().toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0],
     });
+    const DEFAULT_ALL_LIMIT = 300;
+    const [allLimit, setAllLimit] = useState(DEFAULT_ALL_LIMIT);
 
     const projects = useLiveQuery(() => db.projects.toArray(), []);
 
     const entries = useLiveQuery(async () => {
         // Use a consistent, type-safe approach that works even if some backups stored dates as strings
-        const all = await db.timeEntries.toArray();
         const getTime = (value) => {
             const t = value instanceof Date ? value.getTime() : new Date(value).getTime();
             return Number.isFinite(t) ? t : 0;
@@ -65,21 +66,48 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
             }
             case 'all':
             default: {
-                return all
-                    .slice()
-                    .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
+                // For performance, only load the most recent N entries for "All Time"
+                try {
+                    return await db.timeEntries
+                        .orderBy('startTime')
+                        .reverse()
+                        .limit(allLimit)
+                        .toArray();
+                } catch {
+                    // Fallback: load all then slice client-side (kept for mixed data compatibility)
+                    const all = await db.timeEntries.toArray();
+                    return all
+                        .slice()
+                        .sort((a, b) => getTime(b.startTime) - getTime(a.startTime))
+                        .slice(0, allLimit);
+                }
             }
         }
 
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return [];
 
-        return all
-            .filter((e) => {
-                const t = getTime(e.startTime);
-                return t >= startMs && t <= endMs;
-            })
-            .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
-    }, [filter, customRange]);
+        // Prefer indexed range query when possible; fall back to client-side filtering if needed
+        try {
+            const rangeResults = await db.timeEntries
+                .where('startTime')
+                .between(new Date(startMs), new Date(endMs), true, true)
+                .toArray();
+            return rangeResults
+                .filter((e) => {
+                    const t = getTime(e.startTime);
+                    return t >= startMs && t <= endMs;
+                })
+                .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
+        } catch {
+            const all = await db.timeEntries.toArray();
+            return all
+                .filter((e) => {
+                    const t = getTime(e.startTime);
+                    return t >= startMs && t <= endMs;
+                })
+                .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
+        }
+    }, [filter, customRange, allLimit]);
 
     /* ------------------------------------------------------------------ */
     /* Build a map of project id -> project to avoid repeated look-ups    */
@@ -157,25 +185,38 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
                     }
                 </div>
             ) : (
-                Object.keys(groupedEntries).map((date) => (
-                    <div key={date}>
-                        <h2 className="text-lg font-bold text-gray-700 dark:text-gray-200 mb-2 pb-2 border-b border-gray-600 dark:border-gray-400">
-                            {date}
-                        </h2>
-                        <div className="space-y-2">
-                            {groupedEntries[date].map((entry) => (
-                                <TimeEntryItem 
-                                    key={entry.id} 
-                                    entry={entry} 
-                                    project={projectMap[String(entry.projectId)]} 
-                                    projects={projects}
-                                    onStartTimer={onStartTimer}
-                                    activeTimer={activeTimer}
-                                />
-                            ))}
+                <>
+                    {Object.keys(groupedEntries).map((date) => (
+                        <div key={date}>
+                            <h2 className="text-lg font-bold text-gray-700 dark:text-gray-200 mb-2 pb-2 border-b border-gray-600 dark:border-gray-400">
+                                {date}
+                            </h2>
+                            <div className="space-y-2">
+                                {groupedEntries[date].map((entry) => (
+                                    <TimeEntryItem 
+                                        key={entry.id} 
+                                        entry={entry} 
+                                        project={projectMap[String(entry.projectId)]} 
+                                        projects={projects}
+                                        onStartTimer={onStartTimer}
+                                        activeTimer={activeTimer}
+                                    />
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                ))
+                    ))}
+
+                    {filter === 'all' && entries.length >= allLimit && (
+                        <div className="text-center pt-2">
+                            <button
+                                onClick={() => setAllLimit((l) => l + DEFAULT_ALL_LIMIT)}
+                                className="px-3 py-1 text-sm rounded-md bg-background hover:bg-border"
+                            >
+                                Load more
+                            </button>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );

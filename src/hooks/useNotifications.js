@@ -3,10 +3,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 
 // Function to schedule a single notification for a specific time
-export const scheduleNotification = (date, title, options) => {
+// Keep track of scheduled notification timeouts so they can be canceled
+const scheduledTimeouts = new Map();
+
+export const scheduleNotification = (date, title, options, key) => {
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     console.warn('Notification permission not granted.');
-    return;
+    return null;
   }
 
   const now = new Date().getTime();
@@ -14,9 +17,56 @@ export const scheduleNotification = (date, title, options) => {
   const delay = scheduledTime - now;
 
   if (delay > 0) {
-    setTimeout(() => {
-      new Notification(title, options);
+    // If a key is provided and an older timeout exists, clear it first
+    if (key && scheduledTimeouts.has(key)) {
+      clearTimeout(scheduledTimeouts.get(key));
+      scheduledTimeouts.delete(key);
+    }
+
+    const timeoutId = setTimeout(() => {
+      try {
+        new Notification(title, options);
+      } finally {
+        if (key) scheduledTimeouts.delete(key);
+      }
     }, delay);
+
+    if (key) scheduledTimeouts.set(key, timeoutId);
+    return timeoutId;
+  }
+  return null;
+};
+
+export const cancelScheduledNotification = (key) => {
+  if (!key) return;
+  const timeoutId = scheduledTimeouts.get(key);
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+    scheduledTimeouts.delete(key);
+  }
+};
+
+export const cancelScheduledNotificationsByPrefix = (prefix) => {
+  if (!prefix) return;
+  Array.from(scheduledTimeouts.entries()).forEach(([key, id]) => {
+    if (typeof key === 'string' && key.startsWith(prefix)) {
+      clearTimeout(id);
+      scheduledTimeouts.delete(key);
+    }
+  });
+};
+
+export const clearEventNotificationFlags = (eventId) => {
+  if (!eventId) return;
+  try {
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith(`event-${eventId}-`)) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch {
+    // ignore localStorage issues
   }
 };
 

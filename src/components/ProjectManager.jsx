@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import toast from 'react-hot-toast';
 import { db, projectColors } from '../db/db';
+import { cancelScheduledNotification, clearEventNotificationFlags } from '../hooks/useNotifications';
 import { normalizeNullableId } from '../db/id-utils';
 import { Plus, Trash2, Play, Edit } from 'lucide-react';
 
@@ -183,6 +184,18 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                 const tasksToDelete = await db.tasks.where({ projectId: id }).primaryKeys();
                                 await db.tasks.bulkDelete(tasksToDelete);
                                 const eventsToDelete = await db.events.where({ projectId: id }).primaryKeys();
+                                // Cancel any pending notifications and clear flags for these events
+                                eventsToDelete.forEach(eid => {
+                                    cancelScheduledNotification(`event-finish-${eid}`);
+                                    clearEventNotificationFlags(eid);
+                                });
+                                // Delete time entries linked to these events
+                                if (eventsToDelete.length > 0) {
+                                    const teIds = await db.timeEntries.where('eventId').anyOf(eventsToDelete).primaryKeys();
+                                    if (teIds && teIds.length > 0) {
+                                        await db.timeEntries.bulkDelete(teIds);
+                                    }
+                                }
                                 await db.events.bulkDelete(eventsToDelete);
                                 const goalsToDelete = await db.timeGoals.where({ projectId: id }).primaryKeys();
                                 await db.timeGoals.bulkDelete(goalsToDelete);

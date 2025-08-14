@@ -3,7 +3,7 @@ import { RRule, RRuleSet, rrulestr } from 'rrule';
 import { db } from '../db/db';
 import toast from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { scheduleNotification } from '../hooks/useNotifications';
+import { scheduleNotification, cancelScheduledNotification, clearEventNotificationFlags } from '../hooks/useNotifications';
 import { RecurrenceModal } from './RecurrenceModal';
 import { normalizeId } from '../db/id-utils';
 
@@ -99,7 +99,8 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
         scheduleNotification(
             new Date(eventData.end),
             `Event Finished: ${eventData.title}`,
-            { body: 'Your scheduled time block has ended.' }
+            { body: 'Your scheduled time block has ended.' },
+            `event-finish-${eventData.id}`
         );
         if (typeof onStartTracking === 'function') {
             onStartTracking(eventData);
@@ -194,21 +195,41 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
         if (!eventData.id) return onClose();
         try {
             const parentEvent = eventData.parentId ? await db.events.get(eventData.parentId) : eventData;
+            const deleteTimeEntriesForEventIds = async (eventIds) => {
+                if (!eventIds || eventIds.length === 0) return;
+                try {
+                    const teIds = await db.timeEntries.where('eventId').anyOf(eventIds).primaryKeys();
+                    if (teIds && teIds.length > 0) {
+                        await db.timeEntries.bulkDelete(teIds);
+                    }
+                } catch (e) {
+                    console.error('Failed to delete time entries for events', eventIds, e);
+                }
+            };
             if (deleteScope === 'one') {
                 if (parentEvent.id === eventData.id) {
                     const rset = rrulestr(parentEvent.rrule, { forceset: true });
                     rset.exdate(new Date(eventData.startTime));
                     await db.events.update(parentEvent.id, { rrule: rset.toString() });
+                    // Cancel any pending finish notifications and clear flags for this event and its matching child
+                    cancelScheduledNotification(`event-finish-${eventData.id}`);
+                    clearEventNotificationFlags(eventData.id);
                     const childToDelete = await db.events.where({ parentId: parentEvent.id })
                         .filter(child => new Date(child.startTime).getTime() === new Date(eventData.startTime).getTime())
                         .first();
                     if (childToDelete) {
+                        cancelScheduledNotification(`event-finish-${childToDelete.id}`);
+                        clearEventNotificationFlags(childToDelete.id);
+                        await deleteTimeEntriesForEventIds([childToDelete.id]);
                         await db.events.delete(childToDelete.id);
                     }
                 } else {
                     const rset = rrulestr(parentEvent.rrule, { forceset: true });
                     rset.exdate(new Date(eventData.startTime));
                     await db.events.update(parentEvent.id, { rrule: rset.toString() });
+                    cancelScheduledNotification(`event-finish-${eventData.id}`);
+                    clearEventNotificationFlags(eventData.id);
+                    await deleteTimeEntriesForEventIds([eventData.id]);
                     await db.events.delete(eventData.id);
                 }
                 toast.success("Event instance deleted.");
@@ -221,12 +242,24 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                 const futureChildren = await db.events.where({ parentId: parentEvent.id })
                     .filter(e => new Date(e.startTime) >= new Date(eventData.startTime))
                     .toArray();
+                // Cancel notifications and clear flags for all affected future children
+                futureChildren.forEach(c => {
+                    cancelScheduledNotification(`event-finish-${c.id}`);
+                    clearEventNotificationFlags(c.id);
+                });
+                await deleteTimeEntriesForEventIds(futureChildren.map(c => c.id));
                 await db.events.bulkDelete(futureChildren.map(c => c.id));
                 toast.success("Deleted this and all future events.");
             } else { // 'all'
                 const children = await db.events.where({ parentId: parentEvent.id }).toArray();
                 const allIdsToDelete = children.map(c => c.id);
                 allIdsToDelete.push(parentEvent.id);
+                // Cancel notifications and clear flags for parent and all children
+                allIdsToDelete.forEach(id => {
+                    cancelScheduledNotification(`event-finish-${id}`);
+                    clearEventNotificationFlags(id);
+                });
+                await deleteTimeEntriesForEventIds(allIdsToDelete);
                 await db.events.bulkDelete(allIdsToDelete);
                 toast.success("Entire event series deleted.");
             }
@@ -253,6 +286,12 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                             className="bg-red-600 hover:bg-red-700 text-white p-1 px-3 rounded text-sm"
                             onClick={async () => {
                                 try {
+                                    cancelScheduledNotification(`event-finish-${eventData.id}`);
+                                    clearEventNotificationFlags(eventData.id);
+                                    const teIds = await db.timeEntries.where('eventId').equals(eventData.id).primaryKeys();
+                                    if (teIds && teIds.length > 0) {
+                                        await db.timeEntries.bulkDelete(teIds);
+                                    }
                                     await db.events.delete(eventData.id);
                                     toast.success("Event deleted.");
                                     onClose();
