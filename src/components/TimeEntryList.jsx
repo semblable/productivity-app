@@ -125,8 +125,14 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
             month: 'long',
             day: 'numeric',
         });
-        if (!groups[date]) groups[date] = [];
-        groups[date].push(entry);
+        if (!groups[date]) {
+            groups[date] = {
+                entries: [],
+                totalDuration: 0,
+            };
+        }
+        groups[date].entries.push(entry);
+        groups[date].totalDuration += Number(entry.duration) || 0;
         return groups;
     }, {});
 
@@ -186,13 +192,16 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
                 </div>
             ) : (
                 <>
-                    {Object.keys(groupedEntries).map((date) => (
+                    {Object.entries(groupedEntries).map(([date, group]) => (
                         <div key={date}>
-                            <h2 className="text-lg font-bold text-gray-700 dark:text-gray-200 mb-2 pb-2 border-b border-gray-600 dark:border-gray-400">
-                                {date}
+                            <h2 className="flex items-center justify-between gap-4 text-lg font-bold text-gray-700 dark:text-gray-200 mb-2 pb-2 border-b border-gray-600 dark:border-gray-400">
+                                <span>{date}</span>
+                                <span className="font-mono text-sm font-normal bg-secondary text-foreground px-2 py-0.5 rounded">
+                                    {formatDayTotal(group.totalDuration)}
+                                </span>
                             </h2>
                             <div className="space-y-2">
-                                {groupedEntries[date].map((entry) => (
+                                {group.entries.map((entry) => (
                                     <TimeEntryItem 
                                         key={entry.id} 
                                         entry={entry} 
@@ -220,6 +229,17 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
             )}
         </div>
     );
+};
+
+const formatDayTotal = (seconds) => {
+    const totalSeconds = Math.max(0, Number(seconds) || 0);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h`;
+    if (minutes > 0) return `${minutes}m`;
+    return '0m';
 };
 
 const FilterButton = ({ current, value, setFilter, children }) => (

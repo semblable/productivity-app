@@ -13,14 +13,14 @@ export const getFolderDisplayPath = (folder, allFolders, projectMap = {}) => {
   const path = [];
   
   // Add project name if available
-  if (folder.projectId && projectMap[folder.projectId]) {
-    path.push(projectMap[folder.projectId].name);
+  if (folder.projectId && projectMap[String(folder.projectId)]) {
+    path.push(projectMap[String(folder.projectId)].name);
   }
   
   // Recursively build the folder path
   const buildPath = (currentFolder) => {
     if (currentFolder.parentId) {
-      const parent = allFolders.find(f => f.id === currentFolder.parentId);
+      const parent = allFolders.find(f => String(f.id) === String(currentFolder.parentId));
       if (parent) {
         buildPath(parent);
       }

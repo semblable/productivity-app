@@ -16,19 +16,28 @@
 - AI hooks isolated behind `api/geminiClient.js` and `hooks/useGeminiTaskify.js`
 
 ### Top priorities (P0)
-1) Data model consistency and naming
-   - Multiple references to goals via `db.goals` and `db.timeGoals` aliases. Consolidate to a single canonical table/API and remove aliasing once migration is complete.
-   - Add typed accessors (or thin service layer) to shield components from table name differences (local vs cloud). Files: `src/db/db.js`, `ProjectManager.jsx`, `GoalsSummary.jsx`, `TimeTrackerView.jsx`.
+1) Data model consistency and naming — COMPLETED
+   - Consolidated goals: replaced all `db.timeGoals` usages with `db.goals` and removed the legacy aliasing in `src/db/db.js`.
+   - Added a thin repository for goals at `src/db/goals-repository.js` with hooks and typed accessors. Updated `ProjectManager.jsx`, `GoalsSummary.jsx`, `AddEventModal.jsx`, `TimeTracker.jsx`, and `App.js` to use the canonical API.
+   - Next step (optional): expand the repository pattern to other entities (projects, tasks, events, timeEntries) to fully shield cloud/local table differences.
 
-2) Cloud/local ID mode hardening
-   - `normalizeId` switches string/number based on `localStorage.cloudIdsMigrated`. Centralize comparisons with `idsEqual` and consistently normalize inputs at boundaries (form inputs, route params). Audit usages in: `AddTaskForm.jsx`, `folder-utils.js`, `time-entry-utils.js`, `TimeEntryItem.jsx`, `ProjectManager.jsx`.
+2) Cloud/local ID mode hardening — COMPLETED
+   - Hardened `normalizeId` to validate numeric inputs in local mode and return null for invalid values; added early warning.
+   - Replaced client-side String() equality with DB-side normalized queries where applicable; added `idsEqual`-style comparisons where mapping is needed.
+   - Audited and updated usages in: `AddTaskForm.jsx` (folders query), `folder-utils.js` (recursive queries and cascades), `TimeEntryItem.jsx` (saves already normalized), `ProjectManager.jsx` (cascades for tasks/events/folders), `TodoView.jsx` (folders query and comparisons), `GoalsSummary.jsx` (map lookups), `FolderHeader.jsx` (folder tasks query), `GenerateTasksModal.jsx` (folders query), and kept `time-entry-utils.js` using `normalizeId`/`idsEqual`.
 
-3) Recurrence and instance integrity
-   - Ensure consistent field usage across event objects: some code reads `eventData.start`/`end` while others read `startTime`/`endTime`. Standardize in `AddEventModal.jsx` and route handlers setting `modalEventData` in `App.js`.
-   - Add an index strategy for `templateId`, `parentId`, and time fields to speed duplicates checks and between queries. Files: `src/db/db.js`, `AddEventModal.jsx`, `App.js` (handleRecurrence).
+3) Recurrence and instance integrity — COMPLETED
+   - Standardized event fields to `startTime`/`endTime` throughout modal usage and calendar route handlers: `AddEventModal.jsx` now reads/writes only `startTime`/`endTime`, and `App.js` passes `modalEventData` with these fields for slot/event selections.
+   - Added efficient indexes for recurrence and range queries: `events` and `events_cloud` now include `[projectId+startTime]`, `[templateId+startTime]`, and `[parentId+startTime]` (Dexie v28). Updated duplicate-instance checks in `App.js` to use `[templateId+startTime]` and adjusted deletion/split paths in `AddEventModal.jsx` to use `[parentId+startTime]` and range scans.
 
-4) Time tracking double-count and lifecycle
-   - The global Pomodoro-to-TimeEntry logging in `App.js` and local tracker logging can overlap. Guard against double-add with idempotent keys (e.g., timer session UUID) or a last-write check before insert. Files: `src/App.js`, `TimeTracker.jsx`.
+4) Time tracking double-count and lifecycle — COMPLETED
+   - Implemented idempotent session handling without DB schema changes.
+   - On timer start (Pomodoro and manual), generate a sessionId (UUID fallback to time+random) and keep it on the in-memory `activeTimer`.
+   - On stop/auto-log, dedupe before insert using:
+     - a localStorage guard `timeEntryLogged:<sessionId>`; and
+     - a soft match on `startTime` + `duration` + `description` + `projectId` + `goalId` + `taskId`.
+   - Only one flow writes the entry and rolls up to projects/goals; the other path becomes a no-op with an informational toast.
+   - Files: `src/App.js`, `src/components/TimeTracker.jsx`.
 
 5) Notifications architecture
    - `useNotifications` runs in-page timers and stores flags in `localStorage`. Consider moving scheduling/dedup to the service worker (where feasible) and making lead time configurable. Files: `src/hooks/useNotifications.js`, `public/service-worker.js`.
@@ -53,12 +62,12 @@
 ## Area-by-area recommendations
 
 ### Data layer and migrations (`src/db/db.js`)
-- Collapse goal naming: prefer `goals` everywhere; keep `timeGoals` alias only for compatibility, and plan a removal window.
+- [Done] Collapse goal naming: prefer `goals` everywhere; removed the `timeGoals` compatibility alias after updating all usages.
 - Add explicit indexes where hot paths exist:
   - `timeEntries`: `[projectId+startTime]`, `[goalId+startTime]` for fast per-project/goal range queries.
   - `events`: `[projectId+startTime]`, `templateId`, `parentId`.
   - `tasks`: `completed`, `[projectId+completed]`, `templateId`.
-- Wrap `db` in a small repository module (e.g., `src/db/repository.js`) exporting typed functions. Components then call repository methods rather than raw tables.
+- Wrap `db` in a small repository module (e.g., `src/db/repository.js`) exporting typed functions. Components then call repository methods rather than raw tables. (Partially done for goals via `src/db/goals-repository.js`; consider expanding to other tables.)
 - Seed a default project row during initial open if none exist; return real IDs instead of synthetic objects in `getDefaultProject()`.
 
 ### IDs and normalization (`src/db/id-utils.js`)
@@ -67,12 +76,12 @@
 - Provide form-level adapters that always pass normalized IDs into DB writes.
 
 ### Recurrence and events (`AddEventModal.jsx`, `App.js`)
-- Normalize event data shape passed into the modal. Prefer `startTime`/`endTime` consistently; only convert to/from input-friendly strings at the form boundary.
-- In instance editing/deleting for recurring events, extract shared rrule set logic to helpers and add unit tests. Validate that exdate handling uses the same instant (ms) comparison consistently (`start` vs `startTime`).
-- Index `templateId` and verify duplicate-instance prevention for long rules (e.g., yearly) under DST.
+- [Done] Normalize event data shape passed into the modal. Prefer `startTime`/`endTime` consistently; only convert to/from input-friendly strings at the form boundary.
+- [Done] Use compound indexes for instance lookups and range ops; exdate handling now consistently uses `startTime` in ms.
+- Next: add unit tests for recurrence generation and DST boundaries.
 
 ### Time tracking (`TimeTracker.jsx`, `TimeEntryList.jsx`)
-- Assign a session UUID to each timer start and store it on the resulting `timeEntries` row to prevent double-add from concurrent flows (Pomodoro auto-log + manual stop).
+- [Done] Generate a sessionId on timer start and use a localStorage guard + soft dedupe before insert to prevent double-add between Pomodoro auto-log and manual stop. No DB schema changes.
 - Persist “last used project” safely: validate that the stored ID still exists; if not, fall back gracefully.
 - For “All Time” view, paginate by date ranges or add “Load more” by months instead of a hard `limit` to keep queries index-friendly.
 
@@ -109,14 +118,16 @@
   - Time range filtering/pagination in `TimeEntryList`
 
 ## Quick wins checklist
+- [x] Consolidate `db.timeGoals` to `db.goals`; add `src/db/goals-repository.js` and remove alias in `src/db/db.js`
 - [ ] Fix duplicate placeholder rules in `src/index.css`
 - [ ] Use `idsEqual()` everywhere IDs are compared; avoid raw `===` with mixed types
-- [ ] Standardize event data fields in `AddEventModal.jsx` (`startTime`/`endTime` only)
+- [x] Standardize event data fields in `AddEventModal.jsx` (`startTime`/`endTime` only)
 - [ ] Delete project: also delete `timeEntries` with matching `projectId`
 - [ ] Replace Moment with date-fns localizer in `CalendarView.jsx`
 - [ ] Add `aria-label` to any remaining icon-only buttons
 - [ ] Seed a real “Default Project” row on first run; stop returning synthetic default in `getDefaultProject()`
-- [ ] Add an index for `timeEntries.[projectId+startTime]` and `events.templateId`
+- [ ] Add an index for `timeEntries.[projectId+startTime]`
+- [x] Add indexes for `events.[projectId+startTime]`, `events.[templateId+startTime]`, and `events.[parentId+startTime]`
 - [ ] Add basic unit tests for `durationToSeconds`, habit streaks, and recurrence
 
 ## Risks and migration notes

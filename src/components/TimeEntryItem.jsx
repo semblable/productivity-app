@@ -3,17 +3,9 @@ import { db } from '../db/db';
 import { normalizeNullableId } from '../db/id-utils';
 import { durationToSeconds, formatDuration } from '../utils/duration';
 import toast from 'react-hot-toast';
+import { logTimeToProjectGoals, logTimeToGoal } from '../db/time-entry-utils';
 
 export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTimer }) => {
-    const [isEditing, setIsEditing] = useState(false);
-    const [editDescription, setEditDescription] = useState(entry.description);
-    const [editProjectId, setEditProjectId] = useState(entry.projectId);
-
-    /* --------------------------------------------------------------------- */
-    /* Helpers                                                               */
-    /* --------------------------------------------------------------------- */
-
-
     const formatDateForInput = (date) => {
         try {
             const d = new Date(date);
@@ -44,13 +36,26 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
         return new Date(`${dateStr}T${timeStr}`);
     };
 
-    /* --------------------------------------------------------------------- */
-    /* Local state derived from entry                                         */
-    /* --------------------------------------------------------------------- */
+    const [isEditing, setIsEditing] = useState(false);
+    const [editDescription, setEditDescription] = useState(entry.description);
+    const [editProjectId, setEditProjectId] = useState(entry.projectId);
     const [startDate, setStartDate] = useState(formatDateForInput(entry.startTime));
     const [startTimeStr, setStartTimeStr] = useState(formatTimeForInput(entry.startTime));
     const [durationInput, setDurationInput] = useState(formatDuration(entry.duration));
     const [endTime, setEndTime] = useState(entry.endTime);
+
+    /* --------------------------------------------------------------------- */
+    /* Local state derived from entry                                         */
+    /* --------------------------------------------------------------------- */
+    useEffect(() => {
+        if (!isEditing) return;
+        setEditDescription(entry.description);
+        setEditProjectId(entry.projectId);
+        setStartDate(formatDateForInput(entry.startTime));
+        setStartTimeStr(formatTimeForInput(entry.startTime));
+        setDurationInput(formatDuration(entry.duration));
+        setEndTime(entry.endTime);
+    }, [isEditing, entry]);
 
     // Keep end time in sync when the user changes start date/time or duration
     useEffect(() => {
@@ -85,14 +90,38 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
                 return;
             }
 
+            const normalizedProjectId = normalizeNullableId(editProjectId);
+            const previousProjectId = normalizeNullableId(entry.projectId);
+            const previousDuration = Number(entry.duration) || 0;
             const end = new Date(start.getTime() + durationSeconds * 1000);
 
-            await db.timeEntries.update(entry.id, {
-                description: editDescription,
-                projectId: normalizeNullableId(editProjectId),
-                startTime: start,
-                endTime: end,
-                duration: durationSeconds,
+            const shouldRecalculateProjectGoals =
+                String(previousProjectId ?? '') !== String(normalizedProjectId ?? '') ||
+                previousDuration !== durationSeconds;
+
+            await db.transaction('rw', db.timeEntries, db.goals, async () => {
+                // Remove this entry's previous duration from the old project before re-applying with new values.
+                if (shouldRecalculateProjectGoals && previousProjectId) {
+                    await logTimeToProjectGoals(previousProjectId, -previousDuration, entry.goalId);
+                }
+                // Apply this entry's new duration to the selected project.
+                if (shouldRecalculateProjectGoals && normalizedProjectId) {
+                    await logTimeToProjectGoals(normalizedProjectId, durationSeconds, entry.goalId);
+                }
+
+                // Keep goal-level progress in sync when duration changes (even for goal-scoped timers).
+                if (entry.goalId && previousDuration !== durationSeconds) {
+                    const deltaSeconds = durationSeconds - previousDuration;
+                    await logTimeToGoal(entry.goalId, deltaSeconds);
+                }
+
+                await db.timeEntries.update(entry.id, {
+                    description: editDescription,
+                    projectId: normalizedProjectId,
+                    startTime: start,
+                    endTime: end,
+                    duration: durationSeconds,
+                });
             });
             toast.success('Entry updated');
             setIsEditing(false);
@@ -105,7 +134,19 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
     const deleteEntry = async () => {
         if (window.confirm('Are you sure you want to delete this time entry?')) {
             try {
-                await db.timeEntries.delete(entry.id);
+                const duration = Number(entry.duration) || 0;
+                await db.transaction('rw', db.timeEntries, db.goals, async () => {
+                    if (duration > 0) {
+                        const projectId = normalizeNullableId(entry.projectId);
+                        if (projectId) {
+                            await logTimeToProjectGoals(projectId, -duration, entry.goalId);
+                        }
+                        if (entry.goalId) {
+                            await logTimeToGoal(entry.goalId, -duration);
+                        }
+                    }
+                    await db.timeEntries.delete(entry.id);
+                });
                 toast.success('Entry deleted');
             } catch (err) {
                 toast.error('Failed to delete entry.');
@@ -249,6 +290,7 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
                                 }}
                                 className={`p-1 ${activeTimer ? 'text-gray-400 cursor-not-allowed' : 'text-primary hover:text-primary/80'}`}
                                 title={activeTimer ? "Stop current timer first" : "Start timer with same settings"}
+                                aria-label={activeTimer ? "Stop current timer first" : "Start timer with same settings"}
                                 disabled={!onStartTimer}
                             >
                                 <svg 

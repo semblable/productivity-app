@@ -1,11 +1,18 @@
-import { Calendar, momentLocalizer } from 'react-big-calendar';
-import moment from 'moment';
+import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
+import { format, parse, startOfWeek, getDay, isSameDay } from 'date-fns';
+import enUS from 'date-fns/locale/en-US';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './Calendar.css'; // Import custom calendar styles
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 
-const localizer = momentLocalizer(moment);
+const localizer = dateFnsLocalizer({
+    format,
+    parse,
+    startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 0 }),
+    getDay,
+    locales: { 'en-US': enUS },
+});
 
 // Custom Event component for better visual display
 const EventComponent = ({ event }) => {
@@ -116,8 +123,7 @@ export const CalendarView = ({ date, view, onNavigate, onView, onSelectSlot, onS
     };
 
     const dayPropGetter = (date) => {
-        const today = new Date();
-        if (moment(date).isSame(today, 'day')) {
+        if (isSameDay(date, new Date())) {
             return {
                 className: 'today-cell',
             };

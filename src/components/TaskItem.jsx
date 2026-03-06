@@ -343,21 +343,22 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
                         onClick={handleSliceTask} 
                         className={`${buttonClasses} relative`} 
                         title="Slice task with AI"
+                        aria-label="Slice task with AI"
                         disabled={isSlicing}
                     >
                         {isSlicing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                     </button>
                 )}
 
-                <button onClick={() => onStartFocus(task.id)} className={buttonClasses} title="Focus on this task">
+                <button onClick={() => onStartFocus(task.id)} className={buttonClasses} title="Focus on this task" aria-label="Focus on this task">
                     <Zap size={16} />
                 </button>
                 {isEditing ? (
-                    <button onClick={handleEdit} className={buttonClasses}><Save size={16} /></button>
+                    <button onClick={handleEdit} className={buttonClasses} aria-label="Save task"><Save size={16} /></button>
                 ) : (
-                    <button onClick={() => setIsEditing(true)} className={buttonClasses}><Edit size={16} /></button>
+                    <button onClick={() => setIsEditing(true)} className={buttonClasses} aria-label="Edit task"><Edit size={16} /></button>
                 )}
-                <button onClick={deleteTask} className="text-destructive transition-colors hover:opacity-80"><Trash2 size={16} /></button>
+                <button onClick={deleteTask} aria-label="Delete task" className="text-destructive transition-colors hover:opacity-80"><Trash2 size={16} /></button>
             </div>
         </div>
         {progress > 0 && !task.completed && (

@@ -31,6 +31,25 @@ REACT_APP_GEMINI_API_KEY=your_api_key_here
 npm start
 ```
 
+## Start on Windows startup (optional)
+
+If you want the app to launch automatically when you log in to Windows:
+
+1) Build the production bundle once
+```bash
+npm run build
+```
+2) Register startup entry
+```bash
+npm run startup:install
+```
+3) Remove it anytime
+```bash
+npm run startup:remove
+```
+
+The startup entry launches the built app from `build` on port `4173` and opens your browser to `/dashboard`.
+
 Optional features:
 - Dexie Cloud buttons (Login/Sync/Logout) appear in Tools when `REACT_APP_DEXIE_CLOUD_URL` is set
 - “⚡ Generate Tasks” in Notes appears when `REACT_APP_GEMINI_API_KEY` is set

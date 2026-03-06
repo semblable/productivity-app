@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react';
+// Mock routes to avoid importing ESM-only dependencies in deep tree during this smoke test
+jest.mock('./AppRoutes', () => ({ __esModule: true, AppRoutes: () => <div data-testid="routes" /> }));
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders app header', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByText(/Momentum Planner/i)).toBeInTheDocument();
 });

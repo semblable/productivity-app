@@ -11,7 +11,19 @@ const isCloudMode = () => {
 
 export const normalizeId = (value) => {
   if (value == null || value === '') return null;
-  return isCloudMode() ? String(value) : Number(value);
+  if (isCloudMode()) {
+    return String(value);
+  }
+  const candidate = typeof value === 'string' ? value.trim() : value;
+  const num = typeof candidate === 'number' ? candidate : Number(candidate);
+  if (!Number.isFinite(num)) {
+    try {
+      // Surface earlier but do not crash the app
+      console.warn('[id-utils] Invalid numeric id received for normalizeId:', value);
+    } catch {}
+    return null;
+  }
+  return num;
 };
 
 export const normalizeNullableId = (value) => {

@@ -40,7 +40,7 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
     }, []);
 
     const tasks = useLiveQuery(() => db.tasks.toArray(), []);
-    const goals = useLiveQuery(() => db.timeGoals.toArray(), []);
+    const goals = useLiveQuery(() => db.goals.toArray(), []);
 
     const titleSuggestions = Array.from(new Set([
         ...(tasks?.filter(t => !t.completed).map(t => t.text) || []),
@@ -63,12 +63,11 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                 return `${year}-${month}-${day}T${hours}:${minutes}`;
             };
 
-            setStartTime(formatForInput(eventData.start));
-            setEndTime(formatForInput(eventData.end));
-
+            setStartTime(eventData.startTime ? formatForInput(eventData.startTime) : '');
+            setEndTime(eventData.endTime ? formatForInput(eventData.endTime) : '');
 
             if (eventData.rrule) {
-                const recurrenceOptions = getRecurrenceOptions(new Date(eventData.start));
+                const recurrenceOptions = getRecurrenceOptions(new Date(eventData.startTime));
                 // Find a preset that matches the event's rrule string
                 const matchingOption = recurrenceOptions.find(opt => opt.rrule && opt.rrule.toString() === eventData.rrule);
 
@@ -97,7 +96,7 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
     const handleStartTracking = () => {
         if (!eventData || !eventData.id) return;
         scheduleNotification(
-            new Date(eventData.end),
+            new Date(eventData.endTime),
             `Event Finished: ${eventData.title}`,
             { body: 'Your scheduled time block has ended.' },
             `event-finish-${eventData.id}`
@@ -147,7 +146,7 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                 const parentEvent = eventData.parentId ? await db.events.get(eventData.parentId) : eventData;
                 if (updateScope === 'one') {
                     const rset = rrulestr(parentEvent.rrule, { forceset: true });
-                    rset.exdate(new Date(eventData.start));
+                    rset.exdate(new Date(eventData.startTime));
                     await db.events.update(parentEvent.id, { rrule: rset.toString() });
                     delete eventToSave.rrule;
                     await db.events.add(eventToSave);
@@ -155,9 +154,12 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                 } else if (updateScope === 'following') {
                     const ruleOrSet = rrulestr(parentEvent.rrule);
                     const mainRule = (ruleOrSet instanceof RRuleSet) ? ruleOrSet.rrules()[0] : ruleOrSet;
-                    mainRule.options.until = new Date(eventData.start.getTime() - 1);
+                    mainRule.options.until = new Date(eventData.startTime.getTime() - 1);
                     await db.events.update(parentEvent.id, { rrule: ruleOrSet.toString() });
-                    const futureChildren = await db.events.where({ parentId: parentEvent.id }).filter(e => new Date(e.startTime) > start).toArray();
+                    const futureChildren = await db.events
+                        .where('[parentId+startTime]')
+                        .between([parentEvent.id, new Date(start.getTime())], [parentEvent.id, new Date(8640000000000000)], { includeLower: false, includeUpper: true })
+                        .toArray();
                     await db.events.bulkDelete(futureChildren.map(c => c.id));
                     await db.events.add(eventToSave);
                     toast.success("Split event series successfully!");
@@ -214,8 +216,8 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                     // Cancel any pending finish notifications and clear flags for this event and its matching child
                     cancelScheduledNotification(`event-finish-${eventData.id}`);
                     clearEventNotificationFlags(eventData.id);
-                    const childToDelete = await db.events.where({ parentId: parentEvent.id })
-                        .filter(child => new Date(child.startTime).getTime() === new Date(eventData.startTime).getTime())
+                    const childToDelete = await db.events.where('[parentId+startTime]')
+                        .equals([parentEvent.id, new Date(eventData.startTime)])
                         .first();
                     if (childToDelete) {
                         cancelScheduledNotification(`event-finish-${childToDelete.id}`);
@@ -239,8 +241,9 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                 const untilDate = new Date(eventData.startTime.getTime() - 1);
                 const newRule = new RRule({ ...ruleOptions, until: untilDate });
                 await db.events.update(parentEvent.id, { rrule: newRule.toString() });
-                const futureChildren = await db.events.where({ parentId: parentEvent.id })
-                    .filter(e => new Date(e.startTime) >= new Date(eventData.startTime))
+                const futureChildren = await db.events
+                    .where('[parentId+startTime]')
+                    .between([parentEvent.id, new Date(eventData.startTime)], [parentEvent.id, new Date(8640000000000000)])
                     .toArray();
                 // Cancel notifications and clear flags for all affected future children
                 futureChildren.forEach(c => {

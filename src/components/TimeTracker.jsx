@@ -3,7 +3,6 @@ import { durationToSeconds, formatDuration } from '../utils/duration';
 import { db, getDefaultProject } from '../db/db';
 import toast from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { logTimeToProjectGoals } from '../db/time-entry-utils';
 import { normalizeId } from '../db/id-utils';
 
 export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoalId, onStopTimer, initialEvent, onEventConsumed }, ref) => {
@@ -16,6 +15,42 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
     const [manualDurationInput, setManualDurationInput] = useState('01:00:00');
     const [trackedEventId, setTrackedEventId] = useState(null);
     const intervalRef = useRef(null);
+    const stopInFlightRef = useRef(false);
+
+    const getPomodoroDuration = useCallback((timer) => {
+        const accumulatedSeconds = Number(timer?.accumulatedSeconds) || 0;
+        const segmentStart = timer?.segmentStart ? Number(timer.segmentStart) : null;
+        if (!segmentStart) {
+            return accumulatedSeconds;
+        }
+        return accumulatedSeconds + Math.max(0, Math.floor((Date.now() - segmentStart) / 1000));
+    }, []);
+
+    const getTimerDuration = useCallback((timer) => {
+        if (!timer) return 0;
+        if (timer.origin === 'pomodoro') {
+            return getPomodoroDuration(timer);
+        }
+
+        const hasTrackedSegments =
+            timer.segmentStart !== undefined ||
+            timer.accumulatedSeconds !== undefined ||
+            timer.status !== undefined;
+
+        if (!hasTrackedSegments) {
+            return Math.max(0, Math.floor((Date.now() - timer.startTime) / 1000));
+        }
+
+        const accumulatedSeconds = Number(timer.accumulatedSeconds) || 0;
+        const segmentStart = timer?.segmentStart ? Number(timer.segmentStart) : null;
+        if (!segmentStart) {
+            return accumulatedSeconds;
+        }
+
+        return accumulatedSeconds + Math.max(0, Math.floor((Date.now() - segmentStart) / 1000));
+    }, [getPomodoroDuration]);
+
+    const isPaused = !!activeTimer && activeTimer.status === 'paused';
 
     // Handler to start a timer, defined early to avoid temporal dead zone issues when referenced below
     const handleStartTimer = useCallback(async (timerData) => {
@@ -37,12 +72,22 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             localStorage.setItem('lastUsedProjectId', pId.toString());
         }
         
+        const startedAt = Date.now();
         const newTimer = {
             description: desc.trim(),
             projectId: normalizeId(pId),
-            startTime: Date.now(),
+            startTime: startedAt,
             goalId: activeGoalId || null,
             eventId: timerData?.eventId ?? trackedEventId ?? null,
+            origin: timerData?.origin || 'manual',
+            status: 'running',
+            accumulatedSeconds: 0,
+            segmentStart: startedAt,
+            // Generate a best-effort session key without requiring DB schema changes
+            sessionId: (() => {
+                try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch {}
+                return `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            })(),
         };
         setActiveTimer(newTimer);
         toast.success("Timer started!");
@@ -94,7 +139,7 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
     useEffect(() => {
         if (activeGoalId && projects && !activeTimer) {
             const initGoalTimer = async () => {
-                const goal = await db.timeGoals.get(activeGoalId);
+                const goal = await db.goals.get(activeGoalId);
                 if (goal) {
                     setDescription(goal.description);
                     if (goal.projectId) {
@@ -115,10 +160,26 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             setDescription(activeTimer.description);
             setProjectId(activeTimer.projectId || '');
             setTrackedEventId(activeTimer.eventId || null);
-            setDuration(Math.floor((Date.now() - activeTimer.startTime) / 1000));
-            intervalRef.current = setInterval(() => {
-                setDuration(d => d + 1);
-            }, 1000);
+            clearInterval(intervalRef.current);
+
+            if (
+                activeTimer.origin === 'pomodoro' ||
+                activeTimer.segmentStart !== undefined ||
+                activeTimer.accumulatedSeconds !== undefined ||
+                activeTimer.status !== undefined
+            ) {
+                setDuration(getTimerDuration(activeTimer));
+                if (activeTimer.segmentStart) {
+                    intervalRef.current = setInterval(() => {
+                        setDuration(getTimerDuration(activeTimer));
+                    }, 1000);
+                }
+            } else {
+                setDuration(Math.max(0, Math.floor((Date.now() - activeTimer.startTime) / 1000)));
+                intervalRef.current = setInterval(() => {
+                    setDuration(d => d + 1);
+                }, 1000);
+            }
         } else {
             clearInterval(intervalRef.current);
             setDuration(0);
@@ -126,10 +187,11 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             setTrackedEventId(null);
         }
         return () => clearInterval(intervalRef.current);
-    }, [activeTimer]);
+    }, [activeTimer, getTimerDuration]);
 
     useEffect(() => {
         if (!activeTimer) {
+            stopInFlightRef.current = false;
             const start = new Date(manualStartTime || Date.now() - 3600000);
             const end = new Date(manualEndTime || Date.now());
 
@@ -176,56 +238,119 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
         setManualEndTime(formatForInput(endDate));
     };
 
-    const handleStopTimer = async () => {
-        const endTime = Date.now();
-        const finalDuration = Math.floor((endTime - activeTimer.startTime) / 1000);
+    const handlePauseResumeTimer = () => {
+        if (!activeTimer) return;
 
-        // Build the time entry object that will be persisted regardless of whether this
-        // timer is linked to a goal or not. Linking the goalId allows us to keep an
-        // audit trail of the work that contributed to the goal while still showing up
-        // in the generic time-entry list.
-        const entry = {
-            description: activeTimer.description,
-            projectId: activeTimer.projectId,
-            goalId: activeTimer.goalId || null,
-            startTime: new Date(activeTimer.startTime),
-            endTime: new Date(endTime),
-            duration: finalDuration,
-            eventId: trackedEventId,
-        };
+        if (activeTimer.origin === 'pomodoro') {
+            navigator.serviceWorker.controller?.postMessage({
+                command: isPaused ? 'start' : 'pause',
+            });
+            return;
+        }
+
+        if (isPaused) {
+            const resumedAt = Date.now();
+            setActiveTimer({
+                ...activeTimer,
+                status: 'running',
+                segmentStart: resumedAt,
+            });
+            return;
+        }
+
+        setActiveTimer({
+            ...activeTimer,
+            status: 'paused',
+            accumulatedSeconds: getTimerDuration(activeTimer),
+            segmentStart: null,
+        });
+    };
+
+    const handleStopTimer = async () => {
+        if (!activeTimer || stopInFlightRef.current) return;
+        stopInFlightRef.current = true;
+
+        if (activeTimer.origin === 'pomodoro') {
+            navigator.serviceWorker.controller?.postMessage({
+                command: 'reset',
+                data: { mode: 'pomodoro' },
+            });
+            return;
+        }
 
         try {
-            // Persist the entry so it shows up in the history list.
-            await db.timeEntries.add(entry);
+            const endTime = Date.now();
+            const finalDuration = getTimerDuration(activeTimer);
 
-            // If the entry is associated with a project, also roll the time up to any
-            // project-linked goals so their progress bars stay accurate.
-            if (activeTimer.projectId) {
-                // When logging time to a project, we must exclude the specific goal
-                // that this timer was for, otherwise it would get the time added
-                // twice (once directly below, and once as part of the project).
-                await logTimeToProjectGoals(
-                    activeTimer.projectId,
-                    finalDuration,
-                    activeTimer.goalId
-                );
+            // Build the time entry object that will be persisted regardless of whether this
+            // timer is linked to a goal or not. Linking the goalId allows us to keep an
+            // audit trail of the work that contributed to the goal while still showing up
+            // in the generic time-entry list.
+            const entry = {
+                description: activeTimer.description,
+                projectId: activeTimer.projectId,
+                goalId: activeTimer.goalId || null,
+                startTime: new Date(activeTimer.startTime),
+                endTime: new Date(endTime),
+                duration: finalDuration,
+                eventId: trackedEventId,
+                // sessionId is kept on the timer for dedupe against Pomodoro auto-log via localStorage guard
+                sessionId: activeTimer.sessionId || null,
+            };
+
+            // Idempotency without schema changes: prefer a localStorage guard using sessionId.
+            let shouldInsert = true;
+            if (entry.sessionId) {
+                const guardKey = `timeEntryLogged:${entry.sessionId}`;
+                try {
+                    if (localStorage.getItem(guardKey) === '1') shouldInsert = false;
+                } catch {}
+            }
+            if (shouldInsert) {
+                // Additional soft dedupe: look for a same-start same-duration same-context entry
+                const candidate = await db.timeEntries
+                    .where('startTime')
+                    .equals(entry.startTime)
+                    .filter((e) => {
+                        const sameDur = Number(e.duration) === Number(entry.duration);
+                        const sameDesc = String(e.description || '') === String(entry.description || '');
+                        const sameProj = String(e.projectId || '') === String(entry.projectId || '');
+                        const sameGoal = String(e.goalId || '') === String(entry.goalId || '');
+                        const sameEvt = String(e.eventId || '') === String(entry.eventId || '');
+                        return sameDur && sameDesc && sameProj && sameGoal && sameEvt;
+                    })
+                    .first();
+                if (candidate) {
+                    shouldInsert = false;
+                }
+            }
+            if (shouldInsert) {
+                await db.timeEntries.add(entry);
             }
 
-            // If this timer was started for a specific time-based goal, update that
-            // goal's accumulated hours and progress via the callback provided by the
-            // parent component.
-            if (activeTimer.goalId) {
-                onStopTimer(finalDuration);
-                toast.success("Time logged!");
+            // Goal progress is now computed live from time entries (entry.goalId),
+            // so no incremental counter updates are needed here.
+            if (shouldInsert) {
+                if (activeTimer.goalId) {
+                    onStopTimer(finalDuration);
+                    toast.success("Time logged!");
+                } else {
+                    toast.success("Time entry saved!");
+                }
+                if (entry.sessionId) {
+                    try { localStorage.setItem(`timeEntryLogged:${entry.sessionId}`, '1'); } catch {}
+                }
             } else {
-                toast.success("Time entry saved!");
+                toast('Session already logged', { icon: 'ℹ️' });
             }
+
+            setActiveTimer(null);
         } catch (error) {
             console.error("Failed to save time entry:", error);
             toast.error("Failed to save time entry.");
+        } finally {
+            stopInFlightRef.current = false;
         }
-
-        setActiveTimer(null);
     };
     
 
@@ -277,9 +402,6 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
                 endTime: end,
                 duration: durationSeconds,
             });
-            if (finalProjectId) {
-                await logTimeToProjectGoals(finalProjectId, durationSeconds);
-            }
             setDescription('');
             setManualStartTime('');
             setManualEndTime('');
@@ -356,9 +478,17 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
                     {formatDuration(duration)}
                 </div>
                 {activeTimer ? (
-                    <button onClick={handleStopTimer} className="bg-destructive hover:opacity-90 text-destructive-foreground p-2 px-6 rounded-md">
-                        Stop
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handlePauseResumeTimer}
+                            className="bg-secondary hover:bg-border text-foreground p-2 px-4 rounded-md"
+                        >
+                            {isPaused ? 'Resume' : 'Pause'}
+                        </button>
+                        <button onClick={handleStopTimer} className="bg-destructive hover:opacity-90 text-destructive-foreground p-2 px-6 rounded-md">
+                            Stop
+                        </button>
+                    </div>
                 ) : (
                     <div className="flex items-center gap-2">
                         <button onClick={() => handleStartTimer()} className="bg-primary hover:opacity-90 text-primary-foreground p-2 px-6 rounded-md">

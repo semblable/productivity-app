@@ -29,7 +29,7 @@ export const deleteFolder = async (id, { cascade = false } = {}) => {
   await db.transaction('rw', db.tasks, db.folders, async () => {
     // Get all child folders recursively
     const getAllChildFolders = async (parentId) => {
-      const children = await db.folders.where({ parentId }).toArray();
+      const children = await db.folders.where({ parentId: normalizeNullableId(parentId) }).toArray();
       let allChildren = [...children];
       
       for (const child of children) {
@@ -46,12 +46,12 @@ export const deleteFolder = async (id, { cascade = false } = {}) => {
     if (cascade) {
       // Delete all tasks within the folder hierarchy
       for (const folderId of allFolderIds) {
-        await db.tasks.where({ folderId }).delete();
+        await db.tasks.where({ folderId: normalizeNullableId(folderId) }).delete();
       }
     } else {
       // Move all tasks to Ungrouped (folderId = null)
       for (const folderId of allFolderIds) {
-        await db.tasks.where({ folderId }).modify({ folderId: null });
+        await db.tasks.where({ folderId: normalizeNullableId(folderId) }).modify({ folderId: null });
       }
     }
     

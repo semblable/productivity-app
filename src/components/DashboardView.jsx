@@ -2,11 +2,44 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
 import { Bar, Pie } from 'react-chartjs-2';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { DataTools } from './DataTools';
 import GoalsSummary from './GoalsSummary';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
+
+const PERIODS = [
+    { value: 'week',  label: 'Week' },
+    { value: 'month', label: 'Month' },
+    { value: 'year',  label: 'Year' },
+    { value: 'all',   label: 'All' },
+];
+
+const getPeriodStart = (period) => {
+    const now = new Date();
+    switch (period) {
+        case 'week': {
+            const d = new Date(now);
+            d.setDate(d.getDate() - 6);
+            d.setHours(0, 0, 0, 0);
+            return d;
+        }
+        case 'month': {
+            const d = new Date(now);
+            d.setMonth(d.getMonth() - 1);
+            d.setHours(0, 0, 0, 0);
+            return d;
+        }
+        case 'year': {
+            const d = new Date(now);
+            d.setFullYear(d.getFullYear() - 1);
+            d.setHours(0, 0, 0, 0);
+            return d;
+        }
+        default:
+            return null;
+    }
+};
 
 const StatCard = ({ title, value, description }) => (
     <div className="bg-card border border-border p-4 rounded-lg shadow-sm">
@@ -16,23 +49,46 @@ const StatCard = ({ title, value, description }) => (
     </div>
 );
 
+const PeriodButton = ({ current, value, onClick, children }) => (
+    <button
+        onClick={() => onClick(value)}
+        className={`px-3 py-1 text-sm rounded-md transition-colors ${
+            current === value
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-background hover:bg-border text-foreground'
+        }`}
+    >
+        {children}
+    </button>
+);
+
 export const DashboardView = ({ onShowReview = () => {} }) => {
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
-    const tasks = useLiveQuery(() => db.tasks.toArray(), []);
-    const timeEntries = useLiveQuery(() => db.timeEntries.toArray(), []);
+    const [period, setPeriod] = useState('month');
     const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
-    // Listener for theme changes to update chart colors
-    useEffect(() => {
-        const handleThemeChange = () => {
-            setTheme(localStorage.getItem('theme') || 'dark');
-        };
-        window.addEventListener('theme-change', handleThemeChange);
+    const projects   = useLiveQuery(() => db.projects.toArray(), []);
+    const tasks      = useLiveQuery(() => db.tasks.toArray(), []);
+    const timeEntries = useLiveQuery(() => db.timeEntries.toArray(), []);
 
-        return () => {
-            window.removeEventListener('theme-change', handleThemeChange);
-        };
+    useEffect(() => {
+        const handleThemeChange = () => setTheme(localStorage.getItem('theme') || 'dark');
+        window.addEventListener('theme-change', handleThemeChange);
+        return () => window.removeEventListener('theme-change', handleThemeChange);
     }, []);
+
+    const periodStart = useMemo(() => getPeriodStart(period), [period]);
+
+    const filteredEntries = useMemo(() => {
+        if (!timeEntries) return [];
+        if (!periodStart) return timeEntries;
+        return timeEntries.filter(e => new Date(e.startTime) >= periodStart);
+    }, [timeEntries, periodStart]);
+
+    const filteredTasks = useMemo(() => {
+        if (!tasks) return [];
+        if (!periodStart) return tasks;
+        return tasks.filter(t => new Date(t.createdAt) >= periodStart);
+    }, [tasks, periodStart]);
 
     if (!projects || !tasks || !timeEntries) {
         return <div className="text-center text-muted-foreground">Loading dashboard data...</div>;
@@ -43,19 +99,19 @@ export const DashboardView = ({ onShowReview = () => {} }) => {
         return map;
     }, {});
 
-    // --- Data processing for charts ---
-    const totalHoursTracked = timeEntries.reduce((acc, entry) => acc + (entry.duration || 0), 0) / 3600;
-    const completedTasks = tasks.filter(t => t.completed).length;
+    const totalHoursTracked = filteredEntries.reduce((acc, e) => acc + (e.duration || 0), 0) / 3600;
+    const completedTasks = filteredTasks.filter(t => t.completed).length;
 
-    // Time per project
-    const timePerProject = timeEntries.reduce((acc, entry) => {
-        const projectName = projectMap[entry.projectId]?.name || 'Unassigned';
-        acc[projectName] = (acc[projectName] || 0) + (entry.duration || 0);
+    // Time per project — only include entries whose project still exists
+    const timePerProject = filteredEntries.reduce((acc, entry) => {
+        const project = projectMap[entry.projectId];
+        if (!project) return acc;
+        acc[project.name] = (acc[project.name] || 0) + (entry.duration || 0);
         return acc;
     }, {});
-    const projectLabels = Object.keys(timePerProject);
+    // Drop any labels with 0 seconds (shouldn't happen now, but guard anyway)
+    const projectLabels = Object.keys(timePerProject).filter(l => timePerProject[l] > 0);
     const projectColors = projectLabels.map(label => projects.find(p => p.name === label)?.color || '#8884d8');
-
     const projectData = {
         labels: projectLabels,
         datasets: [{
@@ -67,15 +123,15 @@ export const DashboardView = ({ onShowReview = () => {} }) => {
         }],
     };
 
-    // Tasks completed per project
-    const tasksPerProject = tasks.reduce((acc, task) => {
-        if(task.completed) {
-            const projectName = projectMap[task.projectId]?.name || 'Unassigned';
-            acc[projectName] = (acc[projectName] || 0) + 1;
-        }
+    // Tasks completed per project — only include tasks whose project still exists
+    const tasksPerProject = filteredTasks.reduce((acc, task) => {
+        if (!task.completed) return acc;
+        const project = projectMap[task.projectId];
+        if (!project) return acc;
+        acc[project.name] = (acc[project.name] || 0) + 1;
         return acc;
     }, {});
-    const taskProjectLabels = Object.keys(tasksPerProject);
+    const taskProjectLabels = Object.keys(tasksPerProject).filter(l => tasksPerProject[l] > 0);
     const taskProjectColors = taskProjectLabels.map(label => projects.find(p => p.name === label)?.color || '#82ca9d');
     const taskProjectData = {
         labels: taskProjectLabels,
@@ -85,7 +141,7 @@ export const DashboardView = ({ onShowReview = () => {} }) => {
             backgroundColor: taskProjectColors,
             borderColor: theme === 'dark' ? '#020817' : '#ffffff',
             borderWidth: 2,
-        }]
+        }],
     };
 
     const fontColor = theme === 'dark' ? '#e2e8f0' : '#334155';
@@ -93,8 +149,8 @@ export const DashboardView = ({ onShowReview = () => {} }) => {
 
     const chartOptions = {
         responsive: true,
-        plugins: { 
-            legend: { display: false }, 
+        plugins: {
+            legend: { display: false },
             title: { display: false },
             tooltip: {
                 backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff',
@@ -102,45 +158,76 @@ export const DashboardView = ({ onShowReview = () => {} }) => {
                 bodyColor: fontColor,
                 borderColor: gridColor,
                 borderWidth: 1,
-            }
+            },
         },
-        scales: { 
-            y: { ticks: { color: fontColor }, grid: { color: gridColor } }, 
-            x: { ticks: { color: fontColor }, grid: { color: gridColor } } 
+        scales: {
+            y: { ticks: { color: fontColor }, grid: { color: gridColor } },
+            x: { ticks: { color: fontColor }, grid: { color: gridColor } },
         },
     };
-    
+
     const pieChartOptions = {
         responsive: true,
         plugins: {
-            legend: {
-                position: 'top',
-                labels: { color: fontColor }
-            },
+            legend: { position: 'top', labels: { color: fontColor } },
             tooltip: {
                 backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff',
                 titleColor: fontColor,
                 bodyColor: fontColor,
                 borderColor: gridColor,
                 borderWidth: 1,
-            }
-        }
+            },
+        },
+    };
+
+    const periodDescriptions = {
+        week:  'Last 7 days',
+        month: 'Last 30 days',
+        year:  'Last 12 months',
+        all:   'All time',
     };
 
     return (
         <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <StatCard title="Total Hours Tracked" value={totalHoursTracked.toFixed(1)} description="Across all projects" />
-                <StatCard title="Completed Tasks" value={completedTasks} description="Total tasks marked as done" />
-                <StatCard title="Active Projects" value={projects.length} description="Total number of projects" />
+            {/* Period selector */}
+            <div className="flex items-center gap-2 p-3 bg-secondary rounded-lg w-fit">
+                {PERIODS.map(p => (
+                    <PeriodButton key={p.value} current={period} value={p.value} onClick={setPeriod}>
+                        {p.label}
+                    </PeriodButton>
+                ))}
             </div>
-            
+
+            {/* Stat cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard
+                    title="Hours Tracked"
+                    value={totalHoursTracked.toFixed(1)}
+                    description={periodDescriptions[period]}
+                />
+                <StatCard
+                    title="Completed Tasks"
+                    value={completedTasks}
+                    description={`Created & done — ${periodDescriptions[period]}`}
+                />
+                <StatCard
+                    title="Active Projects"
+                    value={projects.length}
+                    description="Total number of projects"
+                />
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-card p-4 rounded-lg border border-border shadow-sm">
-                    <h3 className="font-bold text-lg mb-2 text-card-foreground">Time per Project (Hours)</h3>
-                    <Bar options={chartOptions} data={projectData} />
+                    <h3 className="font-bold text-lg mb-2 text-card-foreground">
+                        Time per Project (Hours) — {periodDescriptions[period]}
+                    </h3>
+                    {projectLabels.length > 0
+                        ? <Bar options={chartOptions} data={projectData} />
+                        : <p className="text-muted-foreground text-sm py-8 text-center">No time entries in this period.</p>
+                    }
                 </div>
-                 <div className="space-y-6">
+                <div className="space-y-6">
                     <DataTools onShowReview={onShowReview} />
                     <GoalsSummary />
                 </div>
@@ -148,10 +235,15 @@ export const DashboardView = ({ onShowReview = () => {} }) => {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-card p-4 rounded-lg border border-border shadow-sm">
-                    <h3 className="font-bold text-lg mb-2 text-card-foreground">Tasks Completed per Project</h3>
-                    <Pie data={taskProjectData} options={pieChartOptions}/>
+                    <h3 className="font-bold text-lg mb-2 text-card-foreground">
+                        Tasks Completed per Project — {periodDescriptions[period]}
+                    </h3>
+                    {taskProjectLabels.length > 0
+                        ? <Pie data={taskProjectData} options={pieChartOptions} />
+                        : <p className="text-muted-foreground text-sm py-8 text-center">No completed tasks in this period.</p>
+                    }
                 </div>
             </div>
         </div>
     );
-}; 
+};

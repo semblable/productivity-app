@@ -7,7 +7,6 @@ import { CalendarView } from './components/CalendarView';
 import { NotesView } from './components/NotesView';
 import PomodoroView from './components/PomodoroView';
 import HabitsView from './components/HabitsView';
-import { IvyLeeWrapper } from './App';
 import { useAppContext } from './context/AppContext';
 import { logTimeToGoal } from './db/time-entry-utils';
 
@@ -23,7 +22,6 @@ export function AppRoutes({ handleStartFocus, handleSelectSlot, handleSelectEven
         element={<DashboardView onShowReview={() => setState({ showWeeklyReview: true })} />}
       />
       <Route path="/todo" element={<TodoView onStartFocus={handleStartFocus} />} />
-      <Route path="/today" element={<IvyLeeWrapper />} />
       <Route path="/habits" element={<HabitsView />} />
       <Route path="/pomodoro" element={<PomodoroView />} />
       <Route

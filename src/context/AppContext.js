@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useState, useContext, useCallback } from 'react';
 
 const AppContext = createContext();
 
@@ -33,9 +33,9 @@ export function AppProvider({ children }) {
     multiSelectMode: false,
   });
 
-  const setState = (newState) => {
+  const setState = useCallback((newState) => {
     setAppState((prev) => ({ ...prev, ...newState }));
-  };
+  }, []);
 
   // ---- Selection helpers ----
   const addSelectedTask = (id) => {

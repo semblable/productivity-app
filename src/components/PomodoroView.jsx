@@ -33,6 +33,29 @@ const PomodoroView = () => {
     });
     const { requestNotificationPermission } = useNotifications();
 
+    const goals = useLiveQuery(() => db.goals.toArray(), []);
+    const projects = useLiveQuery(() => db.projects.toArray(), []);
+    const tasks = useLiveQuery(() => db.tasks.where('completed').equals(0).toArray(), []);
+
+    const projectMap = projects?.reduce((acc, p) => { acc[String(p.id)] = p; return acc; }, {}) ?? {};
+    const goalMap = goals?.reduce((acc, g) => { acc[String(g.id)] = g; return acc; }, {}) ?? {};
+
+    // Reset selectedTarget if the referenced entity has been deleted
+    useEffect(() => {
+        if (selectedTarget === 'none' || !goals || !projects || !tasks) return;
+        const [kind, idStr] = selectedTarget.split(':');
+        const id = String(idStr);
+        let exists = false;
+        if (kind === 'goal') exists = goals.some(g => String(g.id) === id);
+        else if (kind === 'project') exists = projects.some(p => String(p.id) === id);
+        else if (kind === 'task') exists = tasks.some(t => String(t.id) === id);
+        if (!exists) {
+            setSelectedTarget('none');
+            try { localStorage.setItem('pomodoroSelectedTarget', 'none'); } catch {}
+            toast.error('Pomodoro target was removed. Time logging disabled.');
+        }
+    }, [goals, projects, tasks, selectedTarget]);
+
     // On component mount, request notification permissions and send current settings to the service worker.
     useEffect(() => {
         requestNotificationPermission();
@@ -91,10 +114,6 @@ const PomodoroView = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [tempSettings, setTempSettings] = useState(settings);
     
-    const goals = useLiveQuery(() => db.goals.toArray(), []);
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
-    const tasks = useLiveQuery(() => db.tasks.where('completed').equals(0).toArray(), []);
-    
     const formatTime = useCallback((seconds) => {
         if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) {
             return '0:00';
@@ -132,7 +151,12 @@ const PomodoroView = () => {
     }, [settings, switchMode]);
 
     useEffect(() => {
-        document.title = `${formatTime(timeLeft)} - ${mode}`;
+        const appTitle = 'Momentum Planner';
+        document.title = `${formatTime(timeLeft)} - ${mode} | ${appTitle}`;
+
+        return () => {
+            document.title = appTitle;
+        };
     }, [timeLeft, mode, formatTime]);
 
     const handleSettingsChange = (e) => {
@@ -245,13 +269,23 @@ const PomodoroView = () => {
                 >
                     <option value="none">Don't log time</option>
                     <optgroup label="Goals">
-                        {goals?.map(goal => <option key={`goal-${goal.id}`} value={`goal:${goal.id}`}>{goal.description}</option>)}
+                        {goals?.map(goal => {
+                            const proj = goal.projectId ? projectMap[String(goal.projectId)] : null;
+                            const label = proj ? `${goal.description} (${proj.name})` : goal.description;
+                            return <option key={`goal-${goal.id}`} value={`goal:${goal.id}`}>{label}</option>;
+                        })}
                     </optgroup>
                     <optgroup label="Projects">
                         {projects?.map(project => <option key={`project-${project.id}`} value={`project:${project.id}`}>{project.name}</option>)}
                     </optgroup>
                     <optgroup label="Tasks">
-                        {tasks?.map(task => <option key={`task-${task.id}`} value={`task:${task.id}`}>{task.text}</option>)}
+                        {tasks?.map(task => {
+                            const proj = task.projectId ? projectMap[String(task.projectId)] : null;
+                            const goal = task.goalId ? goalMap[String(task.goalId)] : null;
+                            const context = [proj?.name, goal?.description].filter(Boolean).join(' · ');
+                            const label = context ? `${task.text} (${context})` : task.text;
+                            return <option key={`task-${task.id}`} value={`task:${task.id}`}>{label}</option>;
+                        })}
                     </optgroup>
                 </select>
             </div>

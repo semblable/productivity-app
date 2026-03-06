@@ -3,6 +3,7 @@ import { ChevronDown, Trash2, Plus } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDroppable } from '@dnd-kit/core';
 import { db } from '../db/db';
+import { normalizeNullableId } from '../db/id-utils';
 import { createFolder } from '../db/folder-utils';
 import { deleteFolder } from '../db/folder-utils';
 import toast from 'react-hot-toast';
@@ -15,7 +16,7 @@ export const FolderHeader = ({ folder, children, className='', style={} }) => {
   const [isOpen, setIsOpen] = useState(true);
 
   // Live progress calculation
-  const tasksForFolder = useLiveQuery(() => db.tasks.where({ folderId: folder.id }).toArray(), [folder.id]);
+  const tasksForFolder = useLiveQuery(() => db.tasks.where({ folderId: normalizeNullableId(folder.id) }).toArray(), [folder.id]);
   const total = tasksForFolder?.length || 0;
   const completed = tasksForFolder?.filter(t => t.completed).length || 0;
   const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
@@ -53,6 +54,7 @@ export const FolderHeader = ({ folder, children, className='', style={} }) => {
         <div className="flex items-center gap-3">
           <button
             title="Add sub-folder"
+            aria-label="Add sub-folder"
             onClick={async (e) => {
               e.stopPropagation();
               const name = window.prompt('New sub-folder name:');
@@ -71,7 +73,7 @@ export const FolderHeader = ({ folder, children, className='', style={} }) => {
             <Plus size={16} />
           </button>
           <span className="text-sm text-muted-foreground">{completed}/{total}</span>
-          <button onClick={(e) => { e.stopPropagation(); handleDelete(); }} className="text-muted-foreground hover:text-red-500 transition-colors p-1">
+          <button aria-label="Delete folder" onClick={(e) => { e.stopPropagation(); handleDelete(); }} className="text-muted-foreground hover:text-red-500 transition-colors p-1">
             <Trash2 size={16} />
           </button>
         </div>

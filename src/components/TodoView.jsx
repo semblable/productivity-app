@@ -9,7 +9,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOv
 import toast from 'react-hot-toast';
 import { SortableTaskList } from './SortableTaskList';
 import { AddFolderForm } from './AddFolderForm';
-import { normalizeNullableId } from '../db/id-utils';
+import { normalizeNullableId, normalizeId } from '../db/id-utils';
 
 export const TodoView = ({ onStartFocus }) => {
     const { appState, setState, clearSelection, addSelectedTask } = useAppContext();
@@ -51,9 +51,15 @@ export const TodoView = ({ onStartFocus }) => {
 
     // Folders for the selected project (if any)
     const folders = useLiveQuery(async () => {
-        const all = await Folders.toArray();
-        if (projectFilter === 'all') return all;
-        return all.filter(f => String(f.projectId) === String(projectFilter));
+        if (projectFilter === 'all') return await Folders.toArray();
+        try {
+            // Use DB-side filtering with normalized id for performance and correctness across id modes
+            return await Folders.where({ projectId: normalizeNullableId(projectFilter) }).toArray();
+        } catch {
+            // Fallback for any legacy data shapes
+            const all = await Folders.toArray();
+            return all.filter(f => String(f.projectId) === String(projectFilter));
+        }
     }, [projectFilter]);
 
     // Reset folder filter when switching projects or to 'all'
@@ -64,7 +70,7 @@ export const TodoView = ({ onStartFocus }) => {
     // --- Filtering logic - moved up to avoid "used before defined" issues ---
     const filtered = tasks?.filter(task => {
         const matchesSearch = task.text.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesProject = projectFilter === 'all' || String(task.projectId) === projectFilter;
+        const matchesProject = projectFilter === 'all' || String(task.projectId) === String(projectFilter);
         const matchesFolder = projectFilter === 'all' 
             ? true 
             : folderFilter === 'all' 
@@ -118,9 +124,9 @@ export const TodoView = ({ onStartFocus }) => {
         taskElements.forEach(element => {
             const taskRect = element.getBoundingClientRect();
             const taskIdStr = element.getAttribute('data-task-id');
-            const taskId = taskIdStr ? parseInt(taskIdStr, 10) : null;
+            const taskId = taskIdStr ? normalizeId(taskIdStr) : null;
             
-            if (taskId && !isNaN(taskId) && isIntersecting(selectionRect, taskRect)) {
+            if (taskId != null && isIntersecting(selectionRect, taskRect)) {
                 if (!appState.selectedTaskIds.has(taskId)) {
                     addSelectedTask(taskId);
                 }
@@ -275,7 +281,7 @@ export const TodoView = ({ onStartFocus }) => {
                 .filter(t => t.folderId === overTask.folderId)
                 .sort((a, b) => a.order - b.order);
 
-            const overTaskIndex = siblings.findIndex(t => t.id === overTaskId);
+            const overTaskIndex = siblings.findIndex(t => String(t.id) === overTaskId);
             
             // Get order of task before and after the drop target
             const prevTaskOrder = siblings[overTaskIndex - 1]?.order || null;
@@ -318,7 +324,7 @@ export const TodoView = ({ onStartFocus }) => {
                     projectMap={projectMap}
                     onStartFocus={onStartFocus}
                 />
-                {folders?.filter(f => f.parentId === folder.id).map(child => renderFolder(child, level + 1))}
+                {folders?.filter(f => String(f.parentId) === String(folder.id)).map(child => renderFolder(child, level + 1))}
             </FolderHeader>
         );
     };
@@ -333,7 +339,7 @@ export const TodoView = ({ onStartFocus }) => {
                     projectMap={projectMap} 
                     onStartFocus={onStartFocus} 
                 />
-                {projectFolders.filter(child => child.parentId === folder.id).map(child => 
+                {projectFolders.filter(child => String(child.parentId) === String(folder.id)).map(child => 
                     renderProjectFolder(child, projectFolders, byFolder, level + 1)
                 )}
             </FolderHeader>
@@ -368,7 +374,7 @@ export const TodoView = ({ onStartFocus }) => {
             return (
                 <div key={projectId} className="mb-6">
                     <h3 className="text-lg font-bold text-primary mb-3 border-b border-border pb-2">{project?.name || 'No Project'}</h3>
-                    {projectFolders.filter(f=>f.parentId==null).map(folder => 
+                    {projectFolders.filter(f=> f.parentId == null).map(folder => 
                         renderProjectFolder(folder, projectFolders, byFolder)
                     )}
                     {ungrouped.length > 0 && (

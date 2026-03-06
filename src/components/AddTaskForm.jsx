@@ -27,7 +27,10 @@ export const AddTaskForm = ({ projects }) => {
    const [rrule, setRrule] = useState(null);
 
    const goals = useLiveQuery(() => db.goals.toArray(), []);
-   const folders = useLiveQuery(() => projectId ? db.folders.toArray().then(all => all.filter(f=> String(f.projectId)===String(projectId))) : [], [projectId]);
+   const folders = useLiveQuery(
+     () => projectId ? db.folders.where({ projectId: normalizeNullableId(projectId) }).toArray() : [],
+     [projectId]
+   );
 
    // Create project map and prepare folders with hierarchy display
    const projectMap = useMemo(() => {

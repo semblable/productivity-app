@@ -11,9 +11,17 @@ let settings = {
 let mode = 'pomodoro';
 let pomodoros = 0;
 
-function sendStatus() {
+function stopTimerInterval() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+function sendStatus(force = false) {
   const current = { timeLeft, timerState, mode, pomodoros };
   if (
+    !force &&
     lastStatus.timeLeft === current.timeLeft &&
     lastStatus.timerState === current.timerState &&
     lastStatus.mode === current.mode &&
@@ -33,7 +41,7 @@ function sendStatus() {
 
 function finishSession() {
     console.log('[SW] finishSession - completed', { mode, pomodoros });
-    clearInterval(timerInterval);
+    stopTimerInterval();
     timerState = 'idle';
     
     let notificationMessage = "Break's over! Time to focus.";
@@ -53,9 +61,15 @@ function finishSession() {
 function startTimer() {
   if (timerState === 'idle' || timerState === 'paused') {
     console.log('[SW] startTimer');
+    // Always tear down any previous interval before starting a new one.
+    stopTimerInterval();
     timerState = 'running';
     sendStatus(); // Immediately notify clients that timer is running
     timerInterval = setInterval(() => {
+      if (timerState !== 'running') {
+        stopTimerInterval();
+        return;
+      }
       timeLeft--;
       if (timeLeft < 0) { // Changed to < 0 to allow 0 to be displayed
         finishSession();
@@ -70,14 +84,14 @@ function pauseTimer() {
   if (timerState === 'running') {
     console.log('[SW] pauseTimer');
     timerState = 'paused';
-    clearInterval(timerInterval);
+    stopTimerInterval();
     sendStatus();
   }
 }
 
 function resetTimer(newMode, autoStart = false) {
   console.log('[SW] resetTimer', { newMode, autoStart });
-  clearInterval(timerInterval);
+  stopTimerInterval();
   mode = newMode;
   timeLeft = (settings[mode] || 25) * 60;
   
@@ -116,7 +130,7 @@ self.addEventListener('message', (event) => {
       resetTimer(data.mode);
       break;
     case 'getStatus':
-      sendStatus();
+      sendStatus(true);
       break;
     case 'updateSettings':
       settings = { ...settings, ...data.settings };

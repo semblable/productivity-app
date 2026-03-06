@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 // Import React Router components
 import {
   BrowserRouter as Router,
@@ -8,7 +8,6 @@ import {
 // Removed react-toastify in favor of react-hot-toast
 import { useLiveQuery } from 'dexie-react-hooks';
 import { RRule } from 'rrule';
-import { format } from 'date-fns';
 import { Toaster as HotToaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 
@@ -19,14 +18,12 @@ import { FocusView } from './components/FocusView';
 import { WeeklyReview } from './components/WeeklyReview';
 import { useNotifications } from './hooks/useNotifications';
 import { ThemeToggle } from './components/ThemeToggle';
-import IvyLeeView from './components/IvyLeeView';
-import IvyLeePlanner from './components/IvyLeePlanner';
 import { AppRoutes } from './AppRoutes';
 import { checkBrokenStreaks } from './db/habit-utils';
 import { ProjectManager } from './components/ProjectManager';
 import UserGuide from './components/UserGuide';
 import { AppProvider, useAppContext } from './context/AppContext';
-import { logTimeToProjectGoals, logTimeToGoal } from './db/time-entry-utils';
+import { resolvePomodoroTarget } from './utils/pomodoroTarget';
 
 
 // A wrapper component to contain the main layout and navigation
@@ -47,10 +44,47 @@ function AppLayout() {
         checkBrokenStreaks();
     }, []);
 
-  // Global listener for Pomodoro SW status to coordinate time tracking even when on other routes
+  // Global listener for Pomodoro SW status to coordinate time tracking even when on other routes.
+  //
+  // Accumulator pattern: time is accumulated across pause/resume cycles and a
+  // single entry is written only when the pomodoro finishes (mode changes away
+  // from 'pomodoro'). Pausing does NOT write an entry — it just banks the
+  // elapsed segment into accumulatedSeconds.
   const lastStatusRef = useRef({ mode: null, timerState: null, pomodoros: -1 });
-  const trackingRef = useRef({ active: false, pomodoroCount: -1 });
+  const trackingRef = useRef({
+      active: false,
+      pomodoroCount: -1,
+      accumulatedSeconds: 0,
+      segmentStart: null,
+  });
+  const didInitialStatusRef = useRef(false);
   const appStateRef = useRef(appState);
+
+  // Unique ID for this browser tab so only one tab writes the pomodoro entry.
+  // sessionStorage is per-tab; localStorage is shared across tabs.
+  const tabIdRef = useRef(() => {
+      let id = sessionStorage.getItem('pomodoroTabId');
+      if (!id) {
+          id = `tab_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          sessionStorage.setItem('pomodoroTabId', id);
+      }
+      return id;
+  });
+  const getTabId = () => {
+      if (typeof tabIdRef.current === 'function') {
+          tabIdRef.current = tabIdRef.current();
+      }
+      return tabIdRef.current;
+  };
+
+  const createSessionId = () => {
+      try {
+          if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+              return crypto.randomUUID();
+          }
+      } catch {}
+      return `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  };
 
   useEffect(() => {
       appStateRef.current = appState;
@@ -70,114 +104,190 @@ function AppLayout() {
           const activeTimer = appStateRef.current.activeTimer;
           const hasNonPomodoroTimer = !!activeTimer && activeTimer.origin !== 'pomodoro';
 
-          const enteringRunningPomodoro = isPomodoro && isRunning && !(prev.mode === 'pomodoro' && prev.timerState === 'running');
-
-          // If a non-pomodoro timer is running, never auto-start/stop
+          // Never interfere with a manually-started timer
           if (hasNonPomodoroTimer) {
               lastStatusRef.current = curr;
               return;
           }
 
-          // Ensure trackingRef reflects persisted activeTimer on mount
-          if (!trackingRef.current.active && activeTimer && activeTimer.origin === 'pomodoro') {
-              trackingRef.current.active = true;
-              trackingRef.current.pomodoroCount = pomodoros;
-          }
-
-          // Start when entering running Pomodoro and not already tracking
-          if (enteringRunningPomodoro && !trackingRef.current.active) {
-              try {
-                  const selectedTarget = localStorage.getItem('pomodoroSelectedTarget') || 'none';
-                  if (selectedTarget === 'none') {
-                      lastStatusRef.current = curr;
-                      return;
-                  }
-                  // Build context
-                  let description = 'Pomodoro';
-                  let projectId = null;
-                  let goalId = null;
-                  let taskId = null;
-
-                  const [kind, idStr] = selectedTarget.split(':');
-                  const id = idStr;
-                  if (kind === 'goal' && id) {
-                      const goal = await db.goals.get(id);
-                      if (goal) {
-                          description = `Pomodoro - ${goal.description}`;
-                          goalId = goal.id;
-                          projectId = goal.projectId || null;
-                      }
-                  } else if (kind === 'project' && id) {
-                      const proj = await db.projects.get(id);
-                      if (proj) {
-                          description = `Pomodoro - ${proj.name}`;
-                          projectId = proj.id;
-                      }
-                  } else if (kind === 'task' && id) {
-                      const task = await db.tasks.get(id);
-                      if (task) {
-                          description = `Pomodoro - ${task.text}`;
-                          taskId = task.id;
-                          projectId = task.projectId || null;
-                      }
-                  }
-
-                  setState({
-                      activeTimer: {
-                          description,
-                          projectId,
-                          goalId,
-                          taskId,
-                          startTime: Date.now(),
-                          origin: 'pomodoro',
-                      }
-                  });
+          // On mount ONLY (prev.timerState === null is the first-message sentinel):
+          // restore tracking state if a pomodoro activeTimer was persisted in localStorage.
+          // The prev.timerState guard prevents this from re-firing on every subsequent
+          // message when trackingRef.active is briefly false between sessions, which
+          // would create a ghost session from the stale appStateRef and break pomo 2+.
+          if (prev.timerState === null && !trackingRef.current.active && activeTimer && activeTimer.origin === 'pomodoro') {
+              // Only restore as the active tracker if no other tab already owns it,
+              // OR if this tab was the original owner.
+              const currentOwner = localStorage.getItem('pomodoroTrackerOwner');
+              const thisTab = getTabId();
+              if (!currentOwner || currentOwner === thisTab) {
                   trackingRef.current.active = true;
                   trackingRef.current.pomodoroCount = pomodoros;
-                  toast.success('Started tracking Pomodoro');
-              } catch {}
+                  trackingRef.current.accumulatedSeconds = activeTimer.accumulatedSeconds || 0;
+                  trackingRef.current.segmentStart = isRunning
+                      ? (activeTimer.segmentStart || Date.now())
+                      : null;
+                  try { localStorage.setItem('pomodoroTrackerOwner', thisTab); } catch {}
+              }
           }
 
-          // Finalize when Pomodoro no longer running or mode changes (break/reset)
-          if (trackingRef.current.active && (!isPomodoro || !isRunning)) {
-              const active = appStateRef.current.activeTimer;
-              if (active && active.origin === 'pomodoro') {
-                  const endMs = Date.now();
-                  const duration = Math.max(0, Math.floor((endMs - (active.startTime || endMs)) / 1000));
-                  if (duration > 0) {
-                      try {
-                          await db.timeEntries.add({
-                              description: active.description,
-                              projectId: active.projectId || null,
-                              goalId: active.goalId || null,
-                              taskId: active.taskId || null,
-                              startTime: new Date(active.startTime),
-                              endTime: new Date(endMs),
-                              duration,
-                          });
-                          if (active.projectId) {
-                              await logTimeToProjectGoals(active.projectId, duration, active.goalId || null);
-                          }
-                          if (active.goalId) {
-                              await logTimeToGoal(active.goalId, duration);
-                          }
-                          toast.success('Pomodoro time logged');
-                      } catch (e) {
-                          console.error('Failed to log Pomodoro time:', e);
-                          toast.error('Failed to log Pomodoro time');
+          const wasRunning = prev.mode === 'pomodoro' && prev.timerState === 'running';
+          const enteringRunning = isPomodoro && isRunning && !wasRunning;
+          const leavingRunning = trackingRef.current.active && isPomodoro && !isRunning &&
+              (prev.timerState === 'running');
+          // Finish when: mode leaves 'pomodoro' (natural/break), OR user resets
+          // while in pomodoro mode (timerState → 'idle', prev was not idle and not
+          // the very first message on mount where prev.timerState is null).
+          const pomodoroFinished = trackingRef.current.active && (
+              !isPomodoro ||
+              (isPomodoro && timerState === 'idle' && prev.timerState !== null && prev.timerState !== 'idle')
+          );
+
+          // ── START ────────────────────────────────────────────────────────────
+          // Pomodoro just started (or resumed after pause)
+          if (isPomodoro && enteringRunning) {
+              if (!trackingRef.current.active) {
+                  // First start of a new pomodoro — resolve the target once
+                  try {
+                      const selectedTarget = localStorage.getItem('pomodoroSelectedTarget') || 'none';
+                      if (selectedTarget === 'none') {
+                          lastStatusRef.current = curr;
+                          return;
                       }
+                      const { description, projectId, goalId, taskId } = await resolvePomodoroTarget(db, selectedTarget);
+                      const sessionId = createSessionId();
+                      const startedAt = Date.now();
+                      setState({
+                          activeTimer: {
+                              description,
+                              projectId,
+                              goalId,
+                              taskId,
+                              startTime: startedAt,
+                              origin: 'pomodoro',
+                              status: 'running',
+                              sessionId,
+                              accumulatedSeconds: 0,
+                              segmentStart: startedAt,
+                          }
+                      });
+                      trackingRef.current.active = true;
+                      trackingRef.current.pomodoroCount = pomodoros;
+                      trackingRef.current.accumulatedSeconds = 0;
+                      trackingRef.current.segmentStart = startedAt;
+                      try { localStorage.setItem('pomodoroTrackerOwner', getTabId()); } catch {}
+                      toast.success('Started tracking Pomodoro');
+                  } catch (err) {
+                      console.error('Failed to start Pomodoro tracking:', err);
+                      toast.error('Failed to start Pomodoro tracking');
+                  }
+              } else {
+                  // Resuming from pause — just record a new segment start
+                  const resumedAt = Date.now();
+                  trackingRef.current.segmentStart = resumedAt;
+                  const active = appStateRef.current.activeTimer;
+                  if (active && active.origin === 'pomodoro') {
+                      setState({
+                          activeTimer: {
+                              ...active,
+                              status: 'running',
+                              segmentStart: resumedAt,
+                          }
+                      });
                   }
               }
+          }
+
+          // ── PAUSE ────────────────────────────────────────────────────────────
+          // Timer paused — bank elapsed segment, do NOT write an entry yet
+          if (leavingRunning && trackingRef.current.segmentStart !== null) {
+              const segmentSeconds = Math.floor((Date.now() - trackingRef.current.segmentStart) / 1000);
+              trackingRef.current.accumulatedSeconds += segmentSeconds;
+              trackingRef.current.segmentStart = null;
+              // Persist accumulated total so a page reload doesn't lose it
+              const active = appStateRef.current.activeTimer;
+              if (active && active.origin === 'pomodoro') {
+                  setState({
+                      activeTimer: {
+                          ...active,
+                          status: 'paused',
+                          accumulatedSeconds: trackingRef.current.accumulatedSeconds,
+                          segmentStart: null,
+                      }
+                  });
+              }
+          }
+
+          // ── FINISH ───────────────────────────────────────────────────────────
+          // Mode changed away from 'pomodoro' — write the single accumulated entry.
+          // The finishingRef guard prevents any re-entrant call from saving again
+          // while the async DB write is in flight.
+          if (pomodoroFinished) {
+              // Only the tab that owns the tracking session writes the entry.
+              // All other tabs just clean up their local state.
+              const isOwner = localStorage.getItem('pomodoroTrackerOwner') === getTabId();
+
+              // Bank any still-running segment (needed for accurate accumulated time)
+              if (trackingRef.current.segmentStart !== null) {
+                  const segmentSeconds = Math.floor((Date.now() - trackingRef.current.segmentStart) / 1000);
+                  trackingRef.current.accumulatedSeconds += segmentSeconds;
+                  trackingRef.current.segmentStart = null;
+              }
+
+              const active = appStateRef.current.activeTimer;
+              const totalDuration = trackingRef.current.accumulatedSeconds;
+
+              // Tear down tracking synchronously in every tab
               setState({ activeTimer: null });
               trackingRef.current.active = false;
               trackingRef.current.pomodoroCount = -1;
+              trackingRef.current.accumulatedSeconds = 0;
+              trackingRef.current.segmentStart = null;
+              lastStatusRef.current = curr;
+
+              if (isOwner && active && active.origin === 'pomodoro' && totalDuration > 0) {
+                  const sid = active.sessionId;
+                  // Claim the session BEFORE the async write so even a concurrent
+                  // check in this tab's re-entrant path will bail out.
+                  if (sid) {
+                      try { localStorage.setItem(`timeEntryLogged:${sid}`, '1'); } catch {}
+                  }
+                  try { localStorage.removeItem('pomodoroTrackerOwner'); } catch {}
+
+                  try {
+                      const startDate = new Date(active.startTime);
+                      const endDate = new Date();
+                      await db.timeEntries.add({
+                          description: active.description,
+                          projectId: active.projectId || null,
+                          goalId: active.goalId || null,
+                          taskId: active.taskId || null,
+                          startTime: startDate,
+                          endTime: endDate,
+                          duration: totalDuration,
+                      });
+                      toast.success('Pomodoro time logged');
+                  } catch (e) {
+                      if (sid) {
+                          try { localStorage.removeItem(`timeEntryLogged:${sid}`); } catch {}
+                      }
+                      console.error('Failed to log Pomodoro time:', e);
+                      toast.error('Failed to log Pomodoro time');
+                  }
+              } else if (!isOwner) {
+                  try { localStorage.removeItem('pomodoroTrackerOwner'); } catch {}
+              }
+              return;
           }
 
           lastStatusRef.current = curr;
       };
 
       navigator.serviceWorker.addEventListener('message', handleMessage);
-      navigator.serviceWorker.controller?.postMessage({ command: 'getStatus' });
+      if (!didInitialStatusRef.current) {
+          didInitialStatusRef.current = true;
+          navigator.serviceWorker.controller?.postMessage({ command: 'getStatus' });
+      }
       return () => navigator.serviceWorker.removeEventListener('message', handleMessage);
   }, [setState]);
 
@@ -186,6 +296,10 @@ function AppLayout() {
             localStorage.setItem('activeTimer', JSON.stringify(appState.activeTimer));
         } else {
             localStorage.removeItem('activeTimer');
+            trackingRef.current.active = false;
+            trackingRef.current.pomodoroCount = -1;
+            trackingRef.current.accumulatedSeconds = 0;
+            trackingRef.current.segmentStart = null;
         }
     }, [appState.activeTimer]);
 
@@ -239,9 +353,6 @@ function AppLayout() {
                 if (e.key.toLowerCase() === 'p') {
                     // T then P → Pomodoro
                     navigate('/pomodoro');
-                } else if (e.key.toLowerCase() === 'i') {
-                    // T then I → Ivy Lee
-                    navigate('/today');
                 }
                 sequenceRef.key = null;
             }
@@ -259,7 +370,7 @@ function AppLayout() {
     const handleStartFocus = async (taskId) => {
         const task = await db.tasks.get(taskId);
         if (task && task.goalId) {
-            const goal = await db.timeGoals.get(task.goalId);
+            const goal = await db.goals.get(task.goalId);
             if (goal) {
                 handleStartGoalTimer(goal);
             } else {
@@ -305,10 +416,18 @@ function AppLayout() {
                     }
 
                     // Check if an instance already exists for this exact time
-                    // Use templateId + occurrence time to detect duplicates without parentId
-                    const exists = await dbTable.where('templateId').equals(item.id)
-                        .filter(child => new Date(child[startTimeField]).getTime() === occTime)
-                        .first();
+                    // Prefer compound index on [templateId+startTime] for events
+                    let exists;
+                    if (isEvent) {
+                        exists = await db.events
+                            .where('[templateId+startTime]')
+                            .equals([item.id, occurrence])
+                            .first();
+                    } else {
+                        exists = await dbTable.where('templateId').equals(item.id)
+                            .filter(child => new Date(child[startTimeField]).getTime() === occTime)
+                            .first();
+                    }
 
                     if (!exists) {
                         const newItem = {
@@ -357,14 +476,14 @@ function AppLayout() {
     // --- Calendar Handlers ---
     const handleSelectSlot = (slotInfo) => {
         setState({
-            modalEventData: { start: slotInfo.start, end: slotInfo.end },
+            modalEventData: { startTime: slotInfo.start, endTime: slotInfo.end },
             isModalOpen: true
         });
     };
 
     const handleSelectEvent = (event) => {
         setState({
-            modalEventData: { ...event.resource, start: event.start, end: event.end },
+            modalEventData: { ...event.resource, startTime: event.start, endTime: event.end },
             isModalOpen: true
         });
     };
@@ -412,11 +531,10 @@ function AppLayout() {
             <header className="bg-secondary shadow-md sticky top-0 z-10">
                 <nav className="container mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
                     <div className="flex items-center">
-                        <h1 className="text-xl font-bold text-primary mr-6">Productivity Hub</h1>
+                        <h1 className="text-xl font-bold text-primary mr-6">Momentum Planner</h1>
                         <div className="hidden md:flex items-baseline space-x-4">
                             <NavButton to="/dashboard">Dashboard</NavButton>
                             <NavButton to="/todo">To-Do List</NavButton>
-                            <NavButton to="/today">Today's Focus</NavButton>
                             <NavButton to="/habits">Habits</NavButton>
                             <NavButton to="/pomodoro">Pomodoro</NavButton>
                             <NavButton to="/tracker">Time Tracker</NavButton>
@@ -476,32 +594,6 @@ function AppLayout() {
                 onClose={() => setState({ showUserGuide: false })} 
             />
         </div>
-    );
-}
-
-// Wrapper for IvyLeeView to handle its specific logic
-export function IvyLeeWrapper() {
-    const [showIvyLeePlanner, setShowIvyLeePlanner] = useState(false);
-
-    const checkIvyLeePlan = async () => {
-        const today = format(new Date(), 'yyyy-MM-dd');
-        const todaysPlan = await db.ivyLee.get(today);
-
-        if (todaysPlan && todaysPlan.tasks?.length > 0) {
-            setShowIvyLeePlanner(false);
-        } else {
-            setShowIvyLeePlanner(true);
-        }
-    };
-
-    useEffect(() => {
-        checkIvyLeePlan();
-    }, []);
-
-    return showIvyLeePlanner ? (
-        <IvyLeePlanner onPlanCreated={() => setShowIvyLeePlanner(false)} />
-    ) : (
-        <IvyLeeView openPlanner={() => setShowIvyLeePlanner(true)} />
     );
 }
 

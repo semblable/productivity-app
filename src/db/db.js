@@ -174,10 +174,6 @@ db.version(27).stores({
   habit_completions_cloud: '@id, legacyId, habitId, date, [habitId+date]'
 });
 
-// --- Compatibility alias ---
-// Older components may still reference db.timeGoals. Point it to the new goals table
-db.timeGoals = db.table('goals');
-
 // If one-time cloud migration has been completed, alias legacy tables to their cloud counterparts
 const cloudIdsMigrated = typeof window !== 'undefined' && window?.localStorage?.getItem('cloudIdsMigrated') === '1';
 if (cloudIdsMigrated) {
@@ -188,8 +184,6 @@ if (cloudIdsMigrated) {
     if (db.tables.some(t => t.name === 'events_cloud')) db.events = db.table('events_cloud');
     if (db.tables.some(t => t.name === 'goals_cloud')) {
       db.goals = db.table('goals_cloud');
-      // Keep backward compatibility for components referencing timeGoals
-      db.timeGoals = db.table('goals_cloud');
     }
     if (db.tables.some(t => t.name === 'timeEntries_cloud')) db.timeEntries = db.table('timeEntries_cloud');
     if (db.tables.some(t => t.name === 'habits_cloud')) db.habits = db.table('habits_cloud');
@@ -199,6 +193,12 @@ if (cloudIdsMigrated) {
     // Ignore aliasing errors
   }
 }
+
+// Version 28 - Add compound indexes to events for fast range and duplicate checks
+db.version(28).stores({
+  events: '++id, title, startTime, endTime, rrule, parentId, lastInstance, projectId, templateId, [projectId+startTime], [templateId+startTime], [parentId+startTime]',
+  events_cloud: '@id, legacyId, title, startTime, endTime, rrule, parentId, lastInstance, projectId, templateId, [projectId+startTime], [templateId+startTime], [parentId+startTime]'
+});
 
 export const projectColors = [
   '#FF5252',
@@ -216,7 +216,8 @@ export const getDefaultProject = async () => {
   if (project) {
     return project;
   }
-  return { id: 1, name: 'Default Project', color: '#CCCCCC' };
+  const newId = await db.projects.add({ name: 'Default Project', color: '#CCCCCC' });
+  return db.projects.get(newId);
 };
 
 // Configure Dexie Cloud if environment is provided

@@ -22,11 +22,11 @@ const UserGuide = ({ isOpen, onClose }) => {
 
     const features = {
         overview: {
-            title: 'Welcome to Productivity Hub',
+            title: 'Welcome to Momentum Planner',
             content: (
                 <div className="space-y-4">
                     <p className="text-muted-foreground">
-                        Productivity Hub is your all-in-one productivity companion designed to help you manage tasks, 
+                        Momentum Planner is your all-in-one productivity companion designed to help you manage tasks, 
                         track habits, focus on important work, and analyze your productivity patterns.
                     </p>
                     <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 rounded-lg">
