@@ -10,7 +10,7 @@
 
 ### Strengths
 - Clear feature breadth with good separation by view (to-do, calendar, tracker, habits, notes)
-- Offline-first IndexedDB model with forward-looking Dexie Cloud migration path
+- Clean data layer architecture using local SQLite via REST API (migrated from IndexedDB)
 - Thoughtful UX touches (keyboard shortcuts, theme toggle, assistive toasts, datalist suggestions)
 - Recurrence handling for tasks/events and robust time-tracking integration
 - AI hooks isolated behind `api/geminiClient.js` and `hooks/useGeminiTaskify.js`
@@ -28,7 +28,7 @@
 
 3) Recurrence and instance integrity — COMPLETED
    - Standardized event fields to `startTime`/`endTime` throughout modal usage and calendar route handlers: `AddEventModal.jsx` now reads/writes only `startTime`/`endTime`, and `App.js` passes `modalEventData` with these fields for slot/event selections.
-   - Added efficient indexes for recurrence and range queries: `events` and `events_cloud` now include `[projectId+startTime]`, `[templateId+startTime]`, and `[parentId+startTime]` (Dexie v28). Updated duplicate-instance checks in `App.js` to use `[templateId+startTime]` and adjusted deletion/split paths in `AddEventModal.jsx` to use `[parentId+startTime]` and range scans.
+   - Added efficient database indexes for recurrence and range queries to support faster duplicate-instance checks in `App.js` and adjusted deletion/split paths in `AddEventModal.jsx`.
 
 4) Time tracking double-count and lifecycle — COMPLETED
    - Implemented idempotent session handling without DB schema changes.
@@ -43,11 +43,11 @@
    - `useNotifications` runs in-page timers and stores flags in `localStorage`. Consider moving scheduling/dedup to the service worker (where feasible) and making lead time configurable. Files: `src/hooks/useNotifications.js`, `public/service-worker.js`.
 
 6) Performance under scale
-   - `useLiveQuery(() => table.toArray())` appears frequently and will not scale. Prefer indexed queries, ranges, limits, and projection where possible (e.g., `where('completed').equals(0)`, `limit`, `offset`). Files: `TodoView.jsx`, `CalendarView.jsx`, `TimeEntryList.jsx`, `HabitsView.jsx`.
+   - Subscriptions to API or frequent polling could affect performance. Prefer bounded queries, strict payload filters, offset, and limit on large endpoints. Files: `TodoView.jsx`, `CalendarView.jsx`, `TimeEntryList.jsx`, `HabitsView.jsx`.
 
 ### High-impact improvements (P1)
 - Replace Moment in `CalendarView.jsx` with the date-fns localizer to shrink bundle and reduce legacy dependency.
-- Introduce a repository/service layer to abstract raw Dexie access and hide cloud/local table differences. This makes migrations and testing easier.
+- Introduce a repository/service layer strictly over API methods to abstract raw endpoints. This makes migrations and testing easier.
 - Add small, focused tests: recurrence generation, duration parsing, habit streak logic, time-entry filtering by range. Files: `src/utils/duration.js`, `src/db/habit-utils.js`, `App.js` (handleRecurrence), `TimeEntryList.jsx`.
 - Tighten deletion cascades: deleting a project currently removes events/tasks but may leave `timeEntries` with matching `projectId`. Ensure all associated time entries are deleted as well. File: `ProjectManager.jsx`.
 - Create or seed a default project row instead of returning a synthetic object from `getDefaultProject()` to avoid dangling references.
@@ -63,11 +63,8 @@
 
 ### Data layer and migrations (`src/db/db.js`)
 - [Done] Collapse goal naming: prefer `goals` everywhere; removed the `timeGoals` compatibility alias after updating all usages.
-- Add explicit indexes where hot paths exist:
-  - `timeEntries`: `[projectId+startTime]`, `[goalId+startTime]` for fast per-project/goal range queries.
-  - `events`: `[projectId+startTime]`, `templateId`, `parentId`.
-  - `tasks`: `completed`, `[projectId+completed]`, `templateId`.
-- Wrap `db` in a small repository module (e.g., `src/db/repository.js`) exporting typed functions. Components then call repository methods rather than raw tables. (Partially done for goals via `src/db/goals-repository.js`; consider expanding to other tables.)
+- Standardize database access patterns through the `apiClient.js` wrapper.
+- Wrap `api` in a small repository module (e.g., `src/db/repository.js`) exporting typed functions. Components then call repository methods rather than raw endpoints. (Partially done for goals via `src/db/goals-repository.js`; consider expanding to other tables.)
 - Seed a default project row during initial open if none exist; return real IDs instead of synthetic objects in `getDefaultProject()`.
 
 ### IDs and normalization (`src/db/id-utils.js`)

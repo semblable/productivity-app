@@ -1,21 +1,22 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { useGeminiTaskify } from '../hooks/useGeminiTaskify';
 import { bulkAddTasks } from '../db/bulkAddTasks';
-import { db } from '../db/db';
 import toast from 'react-hot-toast';
 import { prepareFoldersForDisplay } from '../utils/folderDisplay';
 import { normalizeId } from '../db/id-utils';
+import { useFolders, useProjects } from '../hooks/useAppData';
+import { useQueryClient } from '@tanstack/react-query';
 
 export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
-  const projects = useLiveQuery(() => db.projects.toArray(), []);
+  const queryClient = useQueryClient();
+  const { data: projects = [] } = useProjects();
   const defaultProjectId = projects?.[0]?.id;
 
   const [projectId, setProjectId] = useState(defaultProjectId);
   const [folderId, setFolderId] = useState('');
   const [enhance, setEnhance] = useState(false);
 
-  const folders = useLiveQuery(() => projectId ? db.folders.where({ projectId: normalizeId(projectId) }).toArray() : [], [projectId]);
+  const { data: folders = [] } = useFolders(projectId ? { projectId: normalizeId(projectId) } : undefined);
 
   // Create project map and prepare folders with hierarchy display
   const projectMap = useMemo(() => {
@@ -50,6 +51,7 @@ export const GenerateTasksModal = ({ isOpen, onClose, note }) => {
   const handleImport = async () => {
     try {
       await bulkAddTasks(tasksTree, normalizeId(projectId), folderId ? normalizeId(folderId) : null);
+      await queryClient.invalidateQueries();
       toast.success('Tasks imported successfully');
       onClose();
     } catch (err) {

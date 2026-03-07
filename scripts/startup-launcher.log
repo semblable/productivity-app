@@ -1,0 +1,19 @@
+f:\todoappwithAD\todo-app-main\node_modules\path-to-regexp\dist\index.js:96
+            throw new PathError(`Missing parameter name at index ${index}`, str);
+            ^
+
+PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+    at name (f:\todoappwithAD\todo-app-main\node_modules\path-to-regexp\dist\index.js:96:19)
+    at parse (f:\todoappwithAD\todo-app-main\node_modules\path-to-regexp\dist\index.js:113:68)
+    at pathToRegexp (f:\todoappwithAD\todo-app-main\node_modules\path-to-regexp\dist\index.js:267:58)
+    at Object.match (f:\todoappwithAD\todo-app-main\node_modules\path-to-regexp\dist\index.js:237:30)
+    at matcher (f:\todoappwithAD\todo-app-main\node_modules\router\lib\layer.js:86:23)
+    at new Layer (f:\todoappwithAD\todo-app-main\node_modules\router\lib\layer.js:93:62)
+    at Function.route (f:\todoappwithAD\todo-app-main\node_modules\router\index.js:428:17)
+    at Function.route (f:\todoappwithAD\todo-app-main\node_modules\express\lib\application.js:257:22)
+    at app.<computed> [as get] (f:\todoappwithAD\todo-app-main\node_modules\express\lib\application.js:478:22)
+    at Object.<anonymous> (f:\todoappwithAD\todo-app-main\server\index.js:41:7) {
+  originalPath: '*'
+}
+
+Node.js v22.12.0

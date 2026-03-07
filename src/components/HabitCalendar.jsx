@@ -1,17 +1,12 @@
 import React, { useMemo } from 'react';
 import CalendarHeatmap from 'react-calendar-heatmap';
 import 'react-calendar-heatmap/dist/styles.css';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import { format, startOfYear, endOfYear, formatISO } from 'date-fns';
-import { Tooltip as ReactTooltip } from 'react-tooltip'
+import { Tooltip as ReactTooltip } from 'react-tooltip';
+import { useHabitCompletions } from '../hooks/useAppData';
 
 const HabitCalendar = ({ habitId }) => {
-    const completions = useLiveQuery(
-        () => db.habit_completions.where({ habitId }).toArray(),
-        [habitId],
-        []
-    );
+    const { data: completions = [] } = useHabitCompletions({ habitId });
 
     const values = useMemo(() => {
         if (!completions) return [];

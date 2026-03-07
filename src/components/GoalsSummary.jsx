@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import { useGoals } from '../db/goals-repository';
 import { calculateDailyPlan, formatHours } from '../utils/goalSchedule';
+import { useProjects, useTimeEntries } from '../hooks/useAppData';
 
 /**
  * Compact presentation of the user's goals with progress bars.
@@ -12,8 +11,8 @@ import { calculateDailyPlan, formatHours } from '../utils/goalSchedule';
  */
 const GoalsSummary = () => {
     const goals       = useGoals();
-    const projects    = useLiveQuery(() => db.projects.toArray(), []);
-    const timeEntries = useLiveQuery(() => db.timeEntries.toArray(), []);
+    const { data: projects = [] } = useProjects();
+    const { data: timeEntries = [] } = useTimeEntries();
 
     // goalId → total tracked seconds
     const goalTimeMap = useMemo(() => {
@@ -40,7 +39,7 @@ const GoalsSummary = () => {
         });
     }, [goals, goalTimeMap]);
 
-    if (!goals || !timeEntries) {
+    if (!goals) {
         return <div className="text-center text-muted-foreground">Loading goals...</div>;
     }
 

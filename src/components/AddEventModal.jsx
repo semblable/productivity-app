@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { RRule, RRuleSet, rrulestr } from 'rrule';
-import { db } from '../db/db';
 import toast from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { scheduleNotification, cancelScheduledNotification, clearEventNotificationFlags } from '../hooks/useNotifications';
 import { RecurrenceModal } from './RecurrenceModal';
 import { normalizeId } from '../db/id-utils';
+import { api } from '../api/apiClient';
+import { useGoals, useTasks } from '../hooks/useAppData';
 
 export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTracking }) => {
+    const queryClient = useQueryClient();
     const [title, setTitle] = useState('');
     const [projectId, setProjectId] = useState('');
     const [startTime, setStartTime] = useState('');
@@ -39,8 +41,8 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
         ];
     }, []);
 
-    const tasks = useLiveQuery(() => db.tasks.toArray(), []);
-    const goals = useLiveQuery(() => db.goals.toArray(), []);
+    const { data: tasks = [] } = useTasks();
+    const { data: goals = [] } = useGoals();
 
     const titleSuggestions = Array.from(new Set([
         ...(tasks?.filter(t => !t.completed).map(t => t.text) || []),
@@ -143,36 +145,39 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
         
         try {
             if (eventData.id) {
-                const parentEvent = eventData.parentId ? await db.events.get(eventData.parentId) : eventData;
+                const parentEvent = eventData.parentId ? await api.events.get(eventData.parentId) : eventData;
                 if (updateScope === 'one') {
                     const rset = rrulestr(parentEvent.rrule, { forceset: true });
                     rset.exdate(new Date(eventData.startTime));
-                    await db.events.update(parentEvent.id, { rrule: rset.toString() });
+                    await api.events.update(parentEvent.id, { rrule: rset.toString() });
                     delete eventToSave.rrule;
-                    await db.events.add(eventToSave);
+                    await api.events.create(eventToSave);
                     toast.success("Event updated as a single instance!");
                 } else if (updateScope === 'following') {
                     const ruleOrSet = rrulestr(parentEvent.rrule);
                     const mainRule = (ruleOrSet instanceof RRuleSet) ? ruleOrSet.rrules()[0] : ruleOrSet;
                     mainRule.options.until = new Date(eventData.startTime.getTime() - 1);
-                    await db.events.update(parentEvent.id, { rrule: ruleOrSet.toString() });
-                    const futureChildren = await db.events
-                        .where('[parentId+startTime]')
-                        .between([parentEvent.id, new Date(start.getTime())], [parentEvent.id, new Date(8640000000000000)], { includeLower: false, includeUpper: true })
-                        .toArray();
-                    await db.events.bulkDelete(futureChildren.map(c => c.id));
-                    await db.events.add(eventToSave);
+                    await api.events.update(parentEvent.id, { rrule: ruleOrSet.toString() });
+                    const futureChildren = (await api.events.list({ parentId: parentEvent.id }))
+                        .filter((child) => new Date(child.startTime) > new Date(start.getTime()));
+                    if (futureChildren.length > 0) {
+                        await api.events.bulkRemove(futureChildren.map((child) => child.id));
+                    }
+                    await api.events.create(eventToSave);
                     toast.success("Split event series successfully!");
                 } else { // 'all'
-                    await db.events.update(parentEvent.id, eventToSave);
-                    const children = await db.events.where({ parentId: parentEvent.id }).toArray();
-                    await db.events.bulkDelete(children.map(c => c.id));
+                    await api.events.update(parentEvent.id, eventToSave);
+                    const children = await api.events.list({ parentId: parentEvent.id });
+                    if (children.length > 0) {
+                        await api.events.bulkRemove(children.map((child) => child.id));
+                    }
                     toast.success("Entire event series updated!");
                 }
             } else {
-                await db.events.add(eventToSave);
+                await api.events.create(eventToSave);
                 toast.success("Event added to calendar!");
             }
+            await queryClient.invalidateQueries();
             onClose();
         } catch (error) {
             console.error("Failed to save event:", error);
@@ -196,13 +201,13 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
     const executeDelete = async (deleteScope) => {
         if (!eventData.id) return onClose();
         try {
-            const parentEvent = eventData.parentId ? await db.events.get(eventData.parentId) : eventData;
+            const parentEvent = eventData.parentId ? await api.events.get(eventData.parentId) : eventData;
             const deleteTimeEntriesForEventIds = async (eventIds) => {
                 if (!eventIds || eventIds.length === 0) return;
                 try {
-                    const teIds = await db.timeEntries.where('eventId').anyOf(eventIds).primaryKeys();
-                    if (teIds && teIds.length > 0) {
-                        await db.timeEntries.bulkDelete(teIds);
+                    const entries = await api.timeEntries.list({ eventId_in: eventIds.join(',') });
+                    if (entries.length > 0) {
+                        await api.timeEntries.bulkRemove(entries.map((entry) => entry.id));
                     }
                 } catch (e) {
                     console.error('Failed to delete time entries for events', eventIds, e);
@@ -212,27 +217,26 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                 if (parentEvent.id === eventData.id) {
                     const rset = rrulestr(parentEvent.rrule, { forceset: true });
                     rset.exdate(new Date(eventData.startTime));
-                    await db.events.update(parentEvent.id, { rrule: rset.toString() });
+                    await api.events.update(parentEvent.id, { rrule: rset.toString() });
                     // Cancel any pending finish notifications and clear flags for this event and its matching child
                     cancelScheduledNotification(`event-finish-${eventData.id}`);
                     clearEventNotificationFlags(eventData.id);
-                    const childToDelete = await db.events.where('[parentId+startTime]')
-                        .equals([parentEvent.id, new Date(eventData.startTime)])
-                        .first();
+                    const childToDelete = (await api.events.list({ parentId: parentEvent.id }))
+                        .find((child) => new Date(child.startTime).getTime() === new Date(eventData.startTime).getTime());
                     if (childToDelete) {
                         cancelScheduledNotification(`event-finish-${childToDelete.id}`);
                         clearEventNotificationFlags(childToDelete.id);
                         await deleteTimeEntriesForEventIds([childToDelete.id]);
-                        await db.events.delete(childToDelete.id);
+                        await api.events.remove(childToDelete.id);
                     }
                 } else {
                     const rset = rrulestr(parentEvent.rrule, { forceset: true });
                     rset.exdate(new Date(eventData.startTime));
-                    await db.events.update(parentEvent.id, { rrule: rset.toString() });
+                    await api.events.update(parentEvent.id, { rrule: rset.toString() });
                     cancelScheduledNotification(`event-finish-${eventData.id}`);
                     clearEventNotificationFlags(eventData.id);
                     await deleteTimeEntriesForEventIds([eventData.id]);
-                    await db.events.delete(eventData.id);
+                    await api.events.remove(eventData.id);
                 }
                 toast.success("Event instance deleted.");
             } else if (deleteScope === 'following') {
@@ -240,21 +244,21 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                 const ruleOptions = originalRule.options;
                 const untilDate = new Date(eventData.startTime.getTime() - 1);
                 const newRule = new RRule({ ...ruleOptions, until: untilDate });
-                await db.events.update(parentEvent.id, { rrule: newRule.toString() });
-                const futureChildren = await db.events
-                    .where('[parentId+startTime]')
-                    .between([parentEvent.id, new Date(eventData.startTime)], [parentEvent.id, new Date(8640000000000000)])
-                    .toArray();
+                await api.events.update(parentEvent.id, { rrule: newRule.toString() });
+                const futureChildren = (await api.events.list({ parentId: parentEvent.id }))
+                    .filter((child) => new Date(child.startTime) >= new Date(eventData.startTime));
                 // Cancel notifications and clear flags for all affected future children
                 futureChildren.forEach(c => {
                     cancelScheduledNotification(`event-finish-${c.id}`);
                     clearEventNotificationFlags(c.id);
                 });
                 await deleteTimeEntriesForEventIds(futureChildren.map(c => c.id));
-                await db.events.bulkDelete(futureChildren.map(c => c.id));
+                if (futureChildren.length > 0) {
+                    await api.events.bulkRemove(futureChildren.map(c => c.id));
+                }
                 toast.success("Deleted this and all future events.");
             } else { // 'all'
-                const children = await db.events.where({ parentId: parentEvent.id }).toArray();
+                const children = await api.events.list({ parentId: parentEvent.id });
                 const allIdsToDelete = children.map(c => c.id);
                 allIdsToDelete.push(parentEvent.id);
                 // Cancel notifications and clear flags for parent and all children
@@ -263,9 +267,10 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                     clearEventNotificationFlags(id);
                 });
                 await deleteTimeEntriesForEventIds(allIdsToDelete);
-                await db.events.bulkDelete(allIdsToDelete);
+                await api.events.bulkRemove(allIdsToDelete);
                 toast.success("Entire event series deleted.");
             }
+            await queryClient.invalidateQueries();
         } catch (error) {
             console.error("Failed to delete event:", error);
             toast.error("Failed to delete event.");
@@ -291,11 +296,12 @@ export const AddEventModal = ({ isOpen, onClose, eventData, projects, onStartTra
                                 try {
                                     cancelScheduledNotification(`event-finish-${eventData.id}`);
                                     clearEventNotificationFlags(eventData.id);
-                                    const teIds = await db.timeEntries.where('eventId').equals(eventData.id).primaryKeys();
-                                    if (teIds && teIds.length > 0) {
-                                        await db.timeEntries.bulkDelete(teIds);
+                                    const entries = await api.timeEntries.list({ eventId: eventData.id });
+                                    if (entries.length > 0) {
+                                        await api.timeEntries.bulkRemove(entries.map((entry) => entry.id));
                                     }
-                                    await db.events.delete(eventData.id);
+                                    await api.events.remove(eventData.id);
+                                    await queryClient.invalidateQueries();
                                     toast.success("Event deleted.");
                                     onClose();
                                 } catch (error) {

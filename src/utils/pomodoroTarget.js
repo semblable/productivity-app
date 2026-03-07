@@ -1,26 +1,94 @@
-import { normalizeId } from '../db/id-utils';
+import { api } from '../api/apiClient';
 
-export const getByLooseId = async (table, rawId) => {
-  if (rawId == null || rawId === '') return null;
+const defaultResolvedTarget = () => ({
+  description: 'Pomodoro',
+  projectId: null,
+  goalId: null,
+  taskId: null,
+});
 
-  const normalizedId = normalizeId(rawId);
-  if (normalizedId != null) {
-    const exactMatch = await table.get(normalizedId);
-    if (exactMatch) return exactMatch;
+const isTableLike = (value) => value && typeof value.get === 'function';
+
+const createTableAccess = (dbOrApi = api) => {
+  if (
+    dbOrApi &&
+    isTableLike(dbOrApi.goals) &&
+    isTableLike(dbOrApi.projects) &&
+    isTableLike(dbOrApi.tasks)
+  ) {
+    return dbOrApi;
   }
 
-  return table
-    .toCollection()
-    .filter((item) => String(item.id) === String(rawId) || String(item.legacyId || '') === String(rawId))
-    .first();
+  return {
+    goals: {
+      get: (id) => dbOrApi.goals.get(id),
+      toCollection: () => ({
+        filter: (predicate) => ({
+          first: async () => {
+            const rows = await dbOrApi.goals.list();
+            return rows.find(predicate) || null;
+          },
+        }),
+      }),
+    },
+    projects: {
+      get: (id) => dbOrApi.projects.get(id),
+      toCollection: () => ({
+        filter: (predicate) => ({
+          first: async () => {
+            const rows = await dbOrApi.projects.list();
+            return rows.find(predicate) || null;
+          },
+        }),
+      }),
+    },
+    tasks: {
+      get: (id) => dbOrApi.tasks.get(id),
+      toCollection: () => ({
+        filter: (predicate) => ({
+          first: async () => {
+            const rows = await dbOrApi.tasks.list();
+            return rows.find(predicate) || null;
+          },
+        }),
+      }),
+    },
+  };
 };
 
-export const resolvePomodoroTarget = async (db, selectedTarget) => {
+export const getByLooseId = async (table, rawId) => {
+  if (!table || rawId == null || rawId === '') {
+    return null;
+  }
+
+  const normalizedStringId = String(rawId);
+  const numericId = Number(rawId);
+  const directId = Number.isNaN(numericId) ? rawId : numericId;
+
+  let entity = await table.get(directId);
+  if (entity) {
+    return entity;
+  }
+
+  if (typeof table.toCollection === 'function') {
+    entity = await table
+      .toCollection()
+      .filter((item) => String(item?.id) === normalizedStringId || String(item?.legacyId) === normalizedStringId)
+      .first();
+  }
+
+  if (!entity && directId !== rawId) {
+    entity = await table.get(rawId);
+  }
+
+  return entity || null;
+};
+
+export const resolvePomodoroTarget = async (dbOrSelectedTarget, maybeSelectedTarget) => {
+  const selectedTarget = maybeSelectedTarget ?? dbOrSelectedTarget;
+  const tables = createTableAccess(maybeSelectedTarget == null ? api : dbOrSelectedTarget);
   const resolved = {
-    description: 'Pomodoro',
-    projectId: null,
-    goalId: null,
-    taskId: null,
+    ...defaultResolvedTarget(),
   };
 
   if (!selectedTarget || selectedTarget === 'none') {
@@ -33,7 +101,7 @@ export const resolvePomodoroTarget = async (db, selectedTarget) => {
   }
 
   if (kind === 'goal') {
-    const goal = await getByLooseId(db.goals, idStr);
+    const goal = await getByLooseId(tables.goals, idStr);
     if (goal) {
       resolved.description = `Pomodoro - ${goal.description}`;
       resolved.goalId = goal.id;
@@ -43,7 +111,7 @@ export const resolvePomodoroTarget = async (db, selectedTarget) => {
   }
 
   if (kind === 'project') {
-    const project = await getByLooseId(db.projects, idStr);
+    const project = await getByLooseId(tables.projects, idStr);
     if (project) {
       resolved.description = `Pomodoro - ${project.name}`;
       resolved.projectId = project.id;
@@ -52,7 +120,7 @@ export const resolvePomodoroTarget = async (db, selectedTarget) => {
   }
 
   if (kind === 'task') {
-    const task = await getByLooseId(db.tasks, idStr);
+    const task = await getByLooseId(tables.tasks, idStr);
     if (!task) {
       return resolved;
     }
@@ -64,7 +132,7 @@ export const resolvePomodoroTarget = async (db, selectedTarget) => {
     if (task.goalId) {
       resolved.goalId = task.goalId;
       if (!resolved.projectId) {
-        const taskGoal = await getByLooseId(db.goals, task.goalId);
+        const taskGoal = await getByLooseId(tables.goals, task.goalId);
         if (taskGoal?.projectId) {
           resolved.projectId = taskGoal.projectId;
         }

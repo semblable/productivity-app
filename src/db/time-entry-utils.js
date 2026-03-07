@@ -1,43 +1,16 @@
-import { db } from './db';
-import { normalizeId, idsEqual } from './id-utils';
+import { api } from '../api/apiClient';
 
 /**
  * Recomputes a goal's actualHours by summing real time entries from the DB,
  * then persists the corrected value. Use this to fix drift between the
  * incremental counter and the actual logged data.
  *
- * Rules (mirror the incremental logic):
- *  - If the goal is linked to a project: sum ALL entries for that project.
- *  - Otherwise: sum only entries where entry.goalId === goal.id.
- *
  * @param {number|string} goalId
  */
 export const recalculateGoalHours = async (goalId) => {
     if (!goalId) return;
     try {
-        const goal = await db.goals.get(goalId);
-        if (!goal) return;
-
-        let entries;
-        if (goal.projectId) {
-            entries = await db.timeEntries
-                .where('projectId')
-                .equals(normalizeId(goal.projectId))
-                .toArray();
-        } else {
-            entries = await db.timeEntries
-                .where('goalId')
-                .equals(normalizeId(goalId))
-                .toArray();
-        }
-
-        const totalSeconds = entries.reduce((sum, e) => sum + (Number(e.duration) || 0), 0);
-        const newActualHours = totalSeconds / 3600;
-        const progress = goal.targetHours > 0
-            ? Math.min(100, Math.round((newActualHours / goal.targetHours) * 100))
-            : 0;
-
-        await db.goals.update(goalId, { actualHours: newActualHours, progress });
+        await api.goals.recalculate(goalId);
     } catch (error) {
         console.error('Failed to recalculate goal hours:', error);
         throw error;
@@ -58,11 +31,10 @@ export const logTimeToProjectGoals = async (projectId, durationInSeconds, goalTo
     // console.log(`[TimeUtil] Checking for goals linked to projectId: ${projectId}, excluding goal: ${goalToExclude}`);
 
     try {
-        let linkedGoals = await db.goals.where({ projectId: normalizeId(projectId) }).toArray();
+        let linkedGoals = await api.goals.list({ projectId });
 
         if (goalToExclude) {
-            // Ensure type consistency for comparison
-            linkedGoals = linkedGoals.filter(g => !idsEqual(g.id, goalToExclude));
+            linkedGoals = linkedGoals.filter((goal) => String(goal.id) !== String(goalToExclude));
         }
 
         if (linkedGoals.length > 0) {
@@ -75,7 +47,7 @@ export const logTimeToProjectGoals = async (projectId, durationInSeconds, goalTo
                     ? Math.min(100, Math.round((newActualHours / goal.targetHours) * 100)) 
                     : 0;
                 
-                await db.goals.update(goal.id, {
+                await api.goals.update(goal.id, {
                     actualHours: newActualHours,
                     progress: progress,
                 });
@@ -101,14 +73,14 @@ export const logTimeToProjectGoals = async (projectId, durationInSeconds, goalTo
 export const logTimeToGoal = async (goalId, durationInSeconds) => {
     if (!goalId || !Number.isFinite(durationInSeconds) || durationInSeconds === 0) return;
     try {
-        const goal = await db.goals.get(goalId);
+        const goal = await api.goals.get(goalId);
         if (!goal) return;
         const hoursToAdd = durationInSeconds / 3600;
         const newActualHours = Math.max(0, (goal.actualHours || 0) + hoursToAdd);
         const progress = goal.targetHours > 0
             ? Math.min(100, Math.round((newActualHours / goal.targetHours) * 100))
             : 0;
-        await db.goals.update(goalId, { actualHours: newActualHours, progress });
+        await api.goals.update(goalId, { actualHours: newActualHours, progress });
         // Notify on completion
         try {
             const hasPermission = typeof Notification !== 'undefined' && Notification.permission === 'granted';

@@ -1,19 +1,20 @@
-import { db } from './db';
+import { api } from '../api/apiClient';
 import toast from 'react-hot-toast';
 import { format, differenceInCalendarDays, subDays } from 'date-fns';
 
 async function _recalculateAndUpdateHabit(habitId) {
-    const habit = await db.habits.get(habitId);
+    const habit = await api.habits.get(habitId);
     if (!habit) return;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const completions = await db.habit_completions
-        .where({ habitId: habit.id })
-        .sortBy('date');
-    
-    const completionDates = completions.map(c => new Date(c.date + 'T00:00:00')).sort((a,b) => b - a);
+    const completions = await api.habit_completions.list({
+        habitId: habit.id,
+        _orderBy: 'date ASC',
+    });
+
+    const completionDates = completions.map(c => new Date(c.date + 'T00:00:00')).sort((a, b) => b - a);
 
     let currentStreak = 0;
     if (completionDates.length > 0) {
@@ -23,7 +24,7 @@ async function _recalculateAndUpdateHabit(habitId) {
             currentStreak = 1;
             for (let i = 0; i < completionDates.length - 1; i++) {
                 const day1 = completionDates[i];
-                const day2 = completionDates[i+1];
+                const day2 = completionDates[i + 1];
                 if (differenceInCalendarDays(day1, day2) === 1) {
                     currentStreak++;
                 } else {
@@ -47,7 +48,7 @@ async function _recalculateAndUpdateHabit(habitId) {
         toast.success(`You earned ${awardedFriezes} streak freeze(s)!`);
     }
 
-    await db.habits.update(habit.id, {
+    await api.habits.update(habit.id, {
         streak: currentStreak,
         bestStreak: newBestStreak,
         lastCompletionDate: lastCompletionDate,
@@ -59,86 +60,89 @@ async function _recalculateAndUpdateHabit(habitId) {
 }
 
 export const updateHabit = async (taskId) => {
-    const habit = await db.habits.where({ taskId }).first();
+    if (!taskId) return;
+    const [habit] = await api.habits.list({ taskId, _limit: 1 });
     if (!habit) return;
 
     const today = new Date();
-    today.setHours(0, 0, 0, 0); 
+    today.setHours(0, 0, 0, 0);
     const todayStr = format(today, 'yyyy-MM-dd');
 
-    const todaysCompletion = await db.habit_completions
-        .where({ habitId: habit.id, date: todayStr })
-        .first();
+    const [todaysCompletion] = await api.habit_completions.list({
+        habitId: habit.id,
+        date: todayStr,
+        _limit: 1,
+    });
 
     if (todaysCompletion) {
-        return; 
+        return;
     }
 
-    await db.habit_completions.add({
+    await api.habit_completions.create({
         habitId: habit.id,
         date: todayStr,
         completedAt: new Date()
     });
 
     const newStreak = await _recalculateAndUpdateHabit(habit.id);
-    
+
     toast.success(`'${habit.name}' habit streak updated to ${newStreak} days! 🔥`);
 };
 
 export const uncompleteHabitToday = async (habitId) => {
-    const habit = await db.habits.get(habitId);
+    const habit = await api.habits.get(habitId);
     if (!habit) return;
-    
+
     const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-    const todaysCompletion = await db.habit_completions
-        .where({ habitId: habit.id, date: todayStr })
-        .first();
+    const [todaysCompletion] = await api.habit_completions.list({
+        habitId: habit.id,
+        date: todayStr,
+        _limit: 1,
+    });
 
     if (todaysCompletion) {
-        await db.habit_completions.delete(todaysCompletion.id);
+        await api.habit_completions.remove(todaysCompletion.id);
         const newStreak = await _recalculateAndUpdateHabit(habitId);
         toast.success(`Un-marked '${habit.name}' for today. Current streak: ${newStreak} days.`);
     }
 };
 
 export const deleteHabit = async (habitId, taskId) => {
-    return db.transaction('rw', db.habits, db.habit_completions, db.tasks, async () => {
-        // 1. Delete all completions for the habit
-        await db.habit_completions.where({ habitId }).delete();
+    if (!habitId) return;
+    const completions = await api.habit_completions.list({ habitId });
+    if (completions.length > 0) {
+        await api.habit_completions.bulkRemove(completions.map((completion) => completion.id));
+    }
 
-        // 2. Delete the habit entry itself
-        await db.habits.delete(habitId);
+    await api.habits.remove(habitId);
 
-        // 3. Delete the associated recurring task
-        if (taskId) {
-            await db.tasks.delete(taskId);
-        }
-    });
+    if (taskId) {
+        await api.tasks.remove(taskId);
+    }
 };
 
 export const updateHabitName = async (habitId, newName, newProjectId) => {
-    return db.transaction('rw', db.habits, db.tasks, async () => {
-        const habit = await db.habits.get(habitId);
-        if (habit) {
-            // 1. Update the habit
-            await db.habits.update(habitId, { 
-                name: newName,
-                projectId: newProjectId
-            });
-            // 2. Update the associated task
-            if (habit.taskId) {
-                await db.tasks.update(habit.taskId, { 
-                    text: newName,
-                    projectId: newProjectId 
-                });
-            }
-        }
+    const habit = await api.habits.get(habitId);
+    if (!habit) {
+        return;
+    }
+
+    await api.habits.update(habitId, {
+        name: newName,
+        projectId: newProjectId
     });
+
+    if (habit.taskId) {
+        await api.tasks.update(habit.taskId, {
+            text: newName,
+            projectId: newProjectId
+        });
+    }
 };
 
 export const checkBrokenStreaks = async () => {
-    const habits = await db.habits.toArray();
+    const habits = await api.habits.list();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -146,19 +150,31 @@ export const checkBrokenStreaks = async () => {
         if (!habit.lastCompletionDate) continue; // Never completed, streak is 0 anyway
 
         const lastCompletion = new Date(habit.lastCompletionDate);
-        lastCompletion.setHours(0,0,0,0);
+        lastCompletion.setHours(0, 0, 0, 0);
 
-        if (differenceInCalendarDays(today, lastCompletion) > 1) {
-            if (habit.streakFreezes > 0) {
-                await db.habits.update(habit.id, { 
-                    streakFreezes: habit.streakFreezes - 1,
+        const missedDays = differenceInCalendarDays(today, lastCompletion) - 1;
+
+        if (missedDays > 0) {
+            if (habit.streakFreezes >= missedDays) {
+                // Have enough freezes for all missed days
+                for (let i = 1; i <= missedDays; i++) {
+                    const missedDateStr = format(subDays(today, missedDays - i + 1), 'yyyy-MM-dd');
+                    await api.habit_completions.create({
+                        habitId: habit.id,
+                        date: missedDateStr,
+                        completedAt: new Date().toISOString()
+                    });
+                }
+
+                await api.habits.update(habit.id, {
+                    streakFreezes: habit.streakFreezes - missedDays,
                     lastCompletionDate: subDays(today, 1) // To "use" the freeze
                 });
-                toast.info(`A streak freeze was used to save your '${habit.name}' streak!`);
+                toast.info(`Used ${missedDays} streak freeze(s) to save your '${habit.name}' streak!`);
             } else {
-                // Only notify and update if the streak hasn't already been reset
+                // Not enough freezes, streak breaks
                 if (habit.streak > 0) {
-                    await db.habits.update(habit.id, { streak: 0 });
+                    await api.habits.update(habit.id, { streak: 0 });
                     toast.error(`Streak for '${habit.name}' was broken.`);
                 }
             }

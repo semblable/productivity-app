@@ -1,19 +1,36 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, Pause, RotateCcw, Settings } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import { useNotifications } from '../hooks/useNotifications';
+import { useGoals, useProjects, useTasks } from '../hooks/useAppData';
+import { postServiceWorkerCommand } from '../utils/serviceWorkerClient';
 
 const PomodoroView = () => {
     const [settings, setSettings] = useState(() => {
-        const savedSettings = localStorage.getItem('pomodoroSettings');
-        return savedSettings ? JSON.parse(savedSettings) : {
+        const fallbackSettings = {
             pomodoro: 25,
             shortBreak: 5,
             longBreak: 15,
             longBreakInterval: 4,
         };
+        try {
+            const savedSettings = localStorage.getItem('pomodoroSettings');
+            if (!savedSettings) {
+                return fallbackSettings;
+            }
+
+            const parsed = JSON.parse(savedSettings);
+            return {
+                pomodoro: Number(parsed?.pomodoro) || fallbackSettings.pomodoro,
+                shortBreak: Number(parsed?.shortBreak) || fallbackSettings.shortBreak,
+                longBreak: Number(parsed?.longBreak) || fallbackSettings.longBreak,
+                longBreakInterval: Number(parsed?.longBreakInterval) || fallbackSettings.longBreakInterval,
+            };
+        } catch (error) {
+            console.error('Failed to parse pomodoroSettings from localStorage', error);
+            localStorage.removeItem('pomodoroSettings');
+            return fallbackSettings;
+        }
     });
 
     // This state is now a mirror of the service worker's state.
@@ -23,7 +40,7 @@ const PomodoroView = () => {
         status: 'idle',
         pomodoros: 0,
     });
-    
+
     const [selectedTarget, setSelectedTarget] = useState(() => {
         try {
             return localStorage.getItem('pomodoroSelectedTarget') || 'none';
@@ -33,12 +50,21 @@ const PomodoroView = () => {
     });
     const { requestNotificationPermission } = useNotifications();
 
-    const goals = useLiveQuery(() => db.goals.toArray(), []);
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
-    const tasks = useLiveQuery(() => db.tasks.where('completed').equals(0).toArray(), []);
+    const { data: goals = [] } = useGoals();
+    const { data: projects = [] } = useProjects();
+    const { data: allTasks = [] } = useTasks({ _orderBy: 'createdAt DESC', _limit: 200 });
+    const tasks = allTasks.filter((task) => !task.completed);
 
     const projectMap = projects?.reduce((acc, p) => { acc[String(p.id)] = p; return acc; }, {}) ?? {};
     const goalMap = goals?.reduce((acc, g) => { acc[String(g.id)] = g; return acc; }, {}) ?? {};
+
+    const sendServiceWorkerCommand = useCallback(async (command, data) => {
+        const posted = await postServiceWorkerCommand(command, data);
+        if (!posted) {
+            toast.error('Pomodoro timer is still initializing. Please try again.');
+        }
+        return posted;
+    }, []);
 
     // Reset selectedTarget if the referenced entity has been deleted
     useEffect(() => {
@@ -51,7 +77,7 @@ const PomodoroView = () => {
         else if (kind === 'task') exists = tasks.some(t => String(t.id) === id);
         if (!exists) {
             setSelectedTarget('none');
-            try { localStorage.setItem('pomodoroSelectedTarget', 'none'); } catch {}
+            try { localStorage.setItem('pomodoroSelectedTarget', 'none'); } catch { }
             toast.error('Pomodoro target was removed. Time logging disabled.');
         }
     }, [goals, projects, tasks, selectedTarget]);
@@ -59,11 +85,9 @@ const PomodoroView = () => {
     // On component mount, request notification permissions and send current settings to the service worker.
     useEffect(() => {
         requestNotificationPermission();
-        if (navigator.serviceWorker.controller) {
-             navigator.serviceWorker.controller.postMessage({ command: 'updateSettings', data: { settings } });
-        }
+        void postServiceWorkerCommand('updateSettings', { settings });
     }, [requestNotificationPermission, settings]);
-    
+
     // This effect sets up the communication channel with the service worker.
     useEffect(() => {
         if (!('serviceWorker' in navigator)) {
@@ -86,13 +110,14 @@ const PomodoroView = () => {
         };
 
         navigator.serviceWorker.addEventListener('message', handleMessage);
-        
+
         // Keep polling until a controller exists, then get one status update and stop polling.
         const statusInterval = setInterval(() => {
-            if (navigator.serviceWorker.controller) {
-                navigator.serviceWorker.controller.postMessage({ command: 'getStatus' });
-                clearInterval(statusInterval);
-            }
+            void postServiceWorkerCommand('getStatus').then((posted) => {
+                if (posted) {
+                    clearInterval(statusInterval);
+                }
+            });
         }, 100);
 
         return () => {
@@ -102,7 +127,7 @@ const PomodoroView = () => {
     }, []);
 
     const { mode, timeLeft, status } = pomodoroState;
-    
+
     // Track productive seconds while a pomodoro is running
     const lastTimeRef = useRef(timeLeft);
 
@@ -113,7 +138,7 @@ const PomodoroView = () => {
 
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [tempSettings, setTempSettings] = useState(settings);
-    
+
     const formatTime = useCallback((seconds) => {
         if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) {
             return '0:00';
@@ -125,8 +150,8 @@ const PomodoroView = () => {
 
     // Tell the service worker to switch modes.
     const switchMode = useCallback((newMode) => {
-        navigator.serviceWorker.controller?.postMessage({ command: 'reset', data: { mode: newMode }});
-    }, []);
+        void sendServiceWorkerCommand('reset', { mode: newMode });
+    }, [sendServiceWorkerCommand]);
 
     // Immediately update local state when changing modes, so UI responds even if the service worker hasn't started yet.
     const changeMode = useCallback((newMode) => {
@@ -138,16 +163,7 @@ const PomodoroView = () => {
             status: 'idle',
         }));
 
-        if (navigator.serviceWorker.controller) {
-            switchMode(newMode);
-        } else {
-            // Wait for the controller to become active, then send the reset command once.
-            const handleControllerChange = () => {
-                navigator.serviceWorker.controller?.postMessage({ command: 'reset', data: { mode: newMode } });
-                navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
-            };
-            navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
-        }
+        switchMode(newMode);
     }, [settings, switchMode]);
 
     useEffect(() => {
@@ -179,9 +195,9 @@ const PomodoroView = () => {
         };
         setSettings(newSettings);
         localStorage.setItem('pomodoroSettings', JSON.stringify(newSettings));
-        
+
         // Send the new settings to the service worker.
-        navigator.serviceWorker.controller?.postMessage({ command: 'updateSettings', data: { settings: newSettings } });
+        void sendServiceWorkerCommand('updateSettings', { settings: newSettings });
 
         setIsSettingsOpen(false);
         toast.success("Settings saved!");
@@ -199,21 +215,19 @@ const PomodoroView = () => {
     const handleTargetChange = (e) => {
         const value = e.target.value;
         setSelectedTarget(value);
-        try { localStorage.setItem('pomodoroSelectedTarget', value); } catch {}
+        try { localStorage.setItem('pomodoroSelectedTarget', value); } catch { }
     };
 
     // Tell the service worker to start or pause the timer.
     const toggleTimer = () => {
         const command = status === 'running' ? 'pause' : 'start';
-        // console.log('[PomodoroView] toggleTimer sending', command);
-        navigator.serviceWorker.controller?.postMessage({ command });
+        void sendServiceWorkerCommand(command);
     };
 
     // Tell the service worker to reset the timer for the current mode.
     const handleReset = useCallback(() => {
-        // console.log('[PomodoroView] handleReset');
-        navigator.serviceWorker.controller?.postMessage({ command: 'reset', data: { mode }});
-    }, [mode]);
+        void sendServiceWorkerCommand('reset', { mode });
+    }, [mode, sendServiceWorkerCommand]);
 
     // Time tracking integration is handled globally in App; PomodoroView only manages UI and selection persistence.
 
@@ -250,7 +264,7 @@ const PomodoroView = () => {
                 <button
                     onClick={openSettings}
                     className="p-3 bg-secondary text-secondary-foreground rounded-full shadow-lg hover:bg-border transition-transform transform hover:scale-105"
-                     aria-label="Settings"
+                    aria-label="Settings"
                 >
                     <Settings size={24} />
                 </button>
@@ -289,7 +303,7 @@ const PomodoroView = () => {
                     </optgroup>
                 </select>
             </div>
-            
+
             {isSettingsOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
                     <div className="bg-card p-6 rounded-lg shadow-2xl w-full max-w-sm">
@@ -308,7 +322,7 @@ const PomodoroView = () => {
                                     <label htmlFor="longBreak" className="block text-sm">Long Break (min)</label>
                                     <input type="number" name="longBreak" id="longBreak" value={tempSettings.longBreak} onChange={handleSettingsChange} className="w-full p-2 bg-input border rounded mt-1" />
                                 </div>
-                                 <div>
+                                <div>
                                     <label htmlFor="longBreakInterval" className="block text-sm">Pomodoros until long break</label>
                                     <input type="number" name="longBreakInterval" id="longBreakInterval" value={tempSettings.longBreakInterval} onChange={handleSettingsChange} className="w-full p-2 bg-input border rounded mt-1" />
                                 </div>

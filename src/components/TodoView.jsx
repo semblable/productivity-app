@@ -1,7 +1,6 @@
-import { useLiveQuery } from 'dexie-react-hooks';
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppContext } from '../context/AppContext';
-import { db } from '../db/db';
 import { AddTaskForm } from './AddTaskForm';
 import { TaskItem } from './TaskItem';
 import { FolderHeader } from './FolderHeader';
@@ -10,13 +9,13 @@ import toast from 'react-hot-toast';
 import { SortableTaskList } from './SortableTaskList';
 import { AddFolderForm } from './AddFolderForm';
 import { normalizeNullableId, normalizeId } from '../db/id-utils';
+import { api } from '../api/apiClient';
+import { useFolders, useProjects, useTasks } from '../hooks/useAppData';
 
 export const TodoView = ({ onStartFocus }) => {
+    const queryClient = useQueryClient();
     const { appState, setState, clearSelection, addSelectedTask } = useAppContext();
-    const Projects = db.projects;
-    const Tasks = db.tasks;
-    const Folders = db.folders;
-    const projects = useLiveQuery(() => Projects.toArray(), []);
+    const { data: projects = [] } = useProjects();
     
     // Local UI state for filters / search
     const [searchTerm, setSearchTerm] = useState('');
@@ -31,8 +30,11 @@ export const TodoView = ({ onStartFocus }) => {
     const [dragCurrentPos, setDragCurrentPos] = useState({ x: 0, y: 0 });
 
     // Custom sorting: priority(desc) then creation date(desc)
-    const tasks = useLiveQuery(async () => {
-        const all = await Tasks.orderBy('createdAt').reverse().toArray();
+    const { data: allTasks = [] } = useTasks();
+    const tasks = useMemo(() => {
+        const all = allTasks
+            .slice()
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         // Filter out template tasks (those with rrule but no templateId) and database-level subtasks
         const topLevel = all.filter(t => {
             // Hide recurring templates (tasks with rrule but no templateId)
@@ -42,7 +44,7 @@ export const TodoView = ({ onStartFocus }) => {
             return true;
         });
         return topLevel.sort((a, b) => (b.priority || 0) - (a.priority || 0));
-    }, []);
+    }, [allTasks]);
 
     const projectMap = projects?.reduce((map, proj) => {
         map[proj.id] = proj;
@@ -50,17 +52,11 @@ export const TodoView = ({ onStartFocus }) => {
     }, {}) || {};
 
     // Folders for the selected project (if any)
-    const folders = useLiveQuery(async () => {
-        if (projectFilter === 'all') return await Folders.toArray();
-        try {
-            // Use DB-side filtering with normalized id for performance and correctness across id modes
-            return await Folders.where({ projectId: normalizeNullableId(projectFilter) }).toArray();
-        } catch {
-            // Fallback for any legacy data shapes
-            const all = await Folders.toArray();
-            return all.filter(f => String(f.projectId) === String(projectFilter));
-        }
-    }, [projectFilter]);
+    const { data: allFolders = [] } = useFolders();
+    const folders = useMemo(() => {
+        if (projectFilter === 'all') return allFolders;
+        return allFolders.filter((folder) => String(folder.projectId) === String(projectFilter));
+    }, [allFolders, projectFilter]);
 
     // Reset folder filter when switching projects or to 'all'
     useEffect(() => {
@@ -228,24 +224,21 @@ export const TodoView = ({ onStartFocus }) => {
                 
                 try {
                     // Use transaction to ensure atomicity
-                    await db.transaction('rw', db.tasks, async () => {
-                        // Verify all tasks still exist
-                        const existingTasks = await db.tasks.where('id').anyOf(idsToMove).toArray();
-                        const existingIds = existingTasks.map(t => t.id);
-                        
-                        if (existingIds.length > 0) {
-                            // Generate unique order values to avoid conflicts
-                            const baseOrder = Date.now();
-                            await Promise.all(
-                                existingIds.map((id, index) => 
-                                    db.tasks.update(id, { 
-                                        folderId: normalizeNullableId(newFolderId), 
-                                        order: baseOrder + index 
-                                    })
-                                )
-                            );
-                        }
-                    });
+                    const existingTasks = tasks.filter((task) => idsToMove.includes(task.id));
+                    const existingIds = existingTasks.map((task) => task.id);
+
+                    if (existingIds.length > 0) {
+                        const baseOrder = Date.now();
+                        await Promise.all(
+                            existingIds.map((id, index) =>
+                                api.tasks.update(id, {
+                                    folderId: normalizeNullableId(newFolderId),
+                                    order: baseOrder + index
+                                })
+                            )
+                        );
+                        await queryClient.invalidateQueries();
+                    }
                     clearSelection();
                     return;
                 } catch (error) {
@@ -264,7 +257,8 @@ export const TodoView = ({ onStartFocus }) => {
         if (String(over.id).startsWith('folder-')) {
             const folderStr = String(over.id).replace('folder-','');
             const newFolderId = folderStr === 'null' ? null : folderStr;
-            await db.tasks.update(activeTaskId, { folderId: normalizeNullableId(newFolderId), order: Date.now() });
+            await api.tasks.update(activeTaskId, { folderId: normalizeNullableId(newFolderId), order: Date.now() });
+            await queryClient.invalidateQueries();
             return;
         }
         // Dropped over another task (reorder)
@@ -272,12 +266,11 @@ export const TodoView = ({ onStartFocus }) => {
             const overTaskId = String(over.id).replace('task-','');
             
             // This is a complex calculation, so we get all tasks to be safe
-            const allTasks = await db.tasks.toArray();
-            const overTask = allTasks.find(t => String(t.id) === overTaskId);
+            const overTask = tasks.find(t => String(t.id) === overTaskId);
             if (!overTask) return;
 
             // Find tasks in the same list (same folderId)
-            const siblings = allTasks
+            const siblings = tasks
                 .filter(t => t.folderId === overTask.folderId)
                 .sort((a, b) => a.order - b.order);
 
@@ -302,7 +295,8 @@ export const TodoView = ({ onStartFocus }) => {
                 newOrder = Date.now();
             }
             
-            await db.tasks.update(activeTaskId, { folderId: overTask.folderId ?? null, order: newOrder });
+            await api.tasks.update(activeTaskId, { folderId: overTask.folderId ?? null, order: newOrder });
+            await queryClient.invalidateQueries();
         }
     };
 

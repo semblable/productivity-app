@@ -1,14 +1,15 @@
 import { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppContext } from '../context/AppContext';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { db } from '../db/db';
 import { normalizeNullableId } from '../db/id-utils';
-import { useLiveQuery } from 'dexie-react-hooks';
 import toast from 'react-hot-toast';
 import { ChevronDown, Edit, Save, Trash2, Zap, Plus, Sparkles, Loader2 } from 'lucide-react';
 import { generateSubTasks } from '../api/geminiClient';
 import { updateHabit } from '../db/habit-utils';
+import { api } from '../api/apiClient';
+import { useFolder } from '../hooks/useAppData';
 
 const priorityStyles = {
     1: 'border-l-4 border-green-500', // Low
@@ -17,6 +18,7 @@ const priorityStyles = {
 };
 
 export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }) => {
+    const queryClient = useQueryClient();
     const { appState, toggleTaskSelection } = useAppContext();
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(task.text);
@@ -42,24 +44,24 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
         transition: isDragging ? 'none' : transition, // No transition when dragging
     };
 
-    const folder = useLiveQuery(() => task.folderId ? db.folders.get(task.folderId) : null, [task.folderId]);
+    const { data: folder } = useFolder(task.folderId);
 
     const subtasks = useMemo(() => task.subtasks || [], [task.subtasks]);
     const completedSubtasks = useMemo(() => subtasks.filter(st => st.completed).length, [subtasks]);
     const progress = useMemo(() => (subtasks.length > 0 ? (completedSubtasks / subtasks.length) * 100 : 0), [subtasks.length, completedSubtasks]);
 
    const recalcGoalProgress = async (goalId) => {
-        const goal = await db.goals.get(goalId);
+        const goal = await api.goals.get(goalId);
         if (goal?.type !== 'task') return; // Only process task-based goals
 
-        const allGoalTasks = await db.tasks.where({ goalId }).toArray();
+        const allGoalTasks = await api.tasks.list({ goalId });
         const completedCount = allGoalTasks.filter(t => t.completed).length;
         const totalCount = allGoalTasks.length;
 
         const progress = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100);
 
         // Here, we update both progress and the actual/target to reflect task counts
-        await db.goals.update(goalId, {
+        await api.goals.update(goalId, {
             progress,
             actual: completedCount,
             target: totalCount
@@ -69,7 +71,7 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
    const toggleCompleted = async () => {
      try {
         const newCompleted = !task.completed;
-        await db.tasks.update(task.id, { completed: newCompleted });
+        await api.tasks.update(task.id, { completed: newCompleted });
 
         if (newCompleted) {
             await updateHabit(task.id);
@@ -80,6 +82,7 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
             await recalcGoalProgress(task.goalId);
         }
 
+        await queryClient.invalidateQueries();
         toast.success(`Task marked as ${newCompleted ? 'complete' : 'incomplete'}.`);
 
      } catch(error) {
@@ -90,7 +93,8 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
 
    const deleteTask = async () => {
       try {
-         await db.tasks.delete(task.id);
+         await api.tasks.remove(task.id);
+         await queryClient.invalidateQueries();
          toast.success("Task deleted.");
        } catch(error) {
           console.error("Failed to delete task:", error);
@@ -101,10 +105,11 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
    const handleEdit = async () => {
         if (!editText.trim()) return toast.error("Task text cannot be empty.");
         try {
-            await db.tasks.update(task.id, { 
+            await api.tasks.update(task.id, { 
                 text: editText.trim(),
                 projectId: normalizeNullableId(editProjectId)
             });
+            await queryClient.invalidateQueries();
             toast.success("Task updated.");
             setIsEditing(false);
         } catch (error) {
@@ -117,7 +122,8 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
        if (!newSubtaskText.trim()) return toast.error("Subtask text cannot be empty.");
        try {
            const newSubtask = { text: newSubtaskText, completed: false, id: Date.now() };
-           await db.tasks.update(task.id, { subtasks: [...subtasks, newSubtask] });
+           await api.tasks.update(task.id, { subtasks: [...subtasks, newSubtask] });
+           await queryClient.invalidateQueries();
            setNewSubtaskText('');
            toast.success("Subtask added.");
        } catch (error) {
@@ -129,7 +135,8 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
    const toggleSubtask = async (subtaskId) => {
         try {
             const updatedSubtasks = subtasks.map(st => st.id === subtaskId ? { ...st, completed: !st.completed } : st);
-            await db.tasks.update(task.id, { subtasks: updatedSubtasks });
+            await api.tasks.update(task.id, { subtasks: updatedSubtasks });
+            await queryClient.invalidateQueries();
         } catch (error) {
             console.error("Failed to update subtask:", error);
             toast.error("Failed to update subtask.");
@@ -139,7 +146,8 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
    const deleteSubtask = async (subtaskId) => {
         try {
             const updatedSubtasks = subtasks.filter(st => st.id !== subtaskId);
-            await db.tasks.update(task.id, { subtasks: updatedSubtasks });
+            await api.tasks.update(task.id, { subtasks: updatedSubtasks });
+            await queryClient.invalidateQueries();
             toast.success("Subtask deleted.");
         } catch (error) {
             console.error("Failed to delete subtask:", error);
@@ -160,7 +168,8 @@ export const TaskItem = ({ task, project, onStartFocus, allProjects, isOverlay }
         }));
 
         const existingSubtasks = task.subtasks || [];
-        await db.tasks.update(task.id, { subtasks: [...existingSubtasks, ...newSubtasks] });
+        await api.tasks.update(task.id, { subtasks: [...existingSubtasks, ...newSubtasks] });
+        await queryClient.invalidateQueries();
         
         toast.dismiss(toastId);
         toast.success('Task sliced into sub-tasks!');

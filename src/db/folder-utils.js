@@ -1,14 +1,19 @@
-import { db } from './db';
-import { normalizeNullableId } from './id-utils';
+import { api } from '../api/apiClient';
 
 /**
  * Create a new folder inside a project.
  * @param {{ name: string, projectId: number, color?: string }} param0
- * @returns {Promise<number>} The newly created folder id (Dexie returns id)
+ * @returns {Promise<number>} The newly created folder id
  */
 export const createFolder = async ({ name, projectId, parentId = null, color }) => {
-  const createdAt = new Date();
-  return db.folders.add({ name, projectId: normalizeNullableId(projectId), parentId: normalizeNullableId(parentId), color, createdAt });
+  const folder = await api.folders.create({
+    name,
+    projectId: projectId ?? null,
+    parentId: parentId ?? null,
+    color,
+    createdAt: new Date(),
+  });
+  return folder.id;
 };
 
 /**
@@ -16,7 +21,7 @@ export const createFolder = async ({ name, projectId, parentId = null, color }) 
  * @param {number} id Folder id
  * @param {string} name New name
  */
-export const renameFolder = (id, name) => db.folders.update(id, { name });
+export const renameFolder = (id, name) => api.folders.update(id, { name });
 
 /**
  * Delete a folder and all its child folders recursively.
@@ -26,43 +31,35 @@ export const renameFolder = (id, name) => db.folders.update(id, { name });
  * @param {{ cascade?: boolean }} opts Options
  */
 export const deleteFolder = async (id, { cascade = false } = {}) => {
-  await db.transaction('rw', db.tasks, db.folders, async () => {
-    // Get all child folders recursively
-    const getAllChildFolders = async (parentId) => {
-      const children = await db.folders.where({ parentId: normalizeNullableId(parentId) }).toArray();
-      let allChildren = [...children];
-      
-      for (const child of children) {
-        const grandChildren = await getAllChildFolders(child.id);
-        allChildren = allChildren.concat(grandChildren);
-      }
-      
-      return allChildren;
-    };
-    
-    const childFolders = await getAllChildFolders(id);
-    const allFolderIds = [id, ...childFolders.map(f => f.id)];
-    
+  if (!id) return;
+  const allFolders = await api.folders.list();
+
+  const getAllChildFolders = (parentId) => {
+    const children = allFolders.filter((folder) => String(folder.parentId) === String(parentId));
+    return children.flatMap((child) => [child, ...getAllChildFolders(child.id)]);
+  };
+
+  const childFolders = getAllChildFolders(id);
+  const allFolderIds = [id, ...childFolders.map((folder) => folder.id)];
+
+  for (const folderId of allFolderIds) {
+    const folderTasks = await api.tasks.list({ folderId });
     if (cascade) {
-      // Delete all tasks within the folder hierarchy
-      for (const folderId of allFolderIds) {
-        await db.tasks.where({ folderId: normalizeNullableId(folderId) }).delete();
+      const taskIds = folderTasks.map((task) => task.id);
+      if (taskIds.length > 0) {
+        await api.tasks.bulkRemove(taskIds);
       }
     } else {
-      // Move all tasks to Ungrouped (folderId = null)
-      for (const folderId of allFolderIds) {
-        await db.tasks.where({ folderId: normalizeNullableId(folderId) }).modify({ folderId: null });
-      }
+      await Promise.all(folderTasks.map((task) => api.tasks.update(task.id, { folderId: null })));
     }
-    
-    // Delete all folders in the hierarchy
-    await db.folders.bulkDelete(allFolderIds);
-  });
+  }
+
+  await api.folders.bulkRemove(allFolderIds);
 };
 
 /**
- * Hook-friendly query to get folders for a given project using Dexie liveQuery.
+ * Query to get folders for a given project.
  * @param {number} projectId
  */
 export const getFoldersForProject = (projectId) =>
-  db.folders.where({ projectId: normalizeNullableId(projectId) }).toArray();
+  api.folders.list({ projectId: projectId ?? 'null' });

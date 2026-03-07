@@ -3,8 +3,7 @@ import { format, parse, startOfWeek, getDay, isSameDay } from 'date-fns';
 import enUS from 'date-fns/locale/en-US';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './Calendar.css'; // Import custom calendar styles
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
+import { useEvents, useProjects } from '../hooks/useAppData';
 
 const localizer = dateFnsLocalizer({
     format,
@@ -26,43 +25,8 @@ const EventComponent = ({ event }) => {
 };
 
 export const CalendarView = ({ date, view, onNavigate, onView, onSelectSlot, onSelectEvent }) => {
-    // Be resilient to cloud/local aliasing issues by reading from both stores when available and de-duplicating
-    const events = useLiveQuery(async () => {
-        try {
-            const primary = await db.events.toArray();
-
-            // Try to also read from the alternate store if present (handles partial migrations)
-            let extra = [];
-            try {
-                const native = typeof db.backendDB === 'function' ? db.backendDB() : null;
-                const hasLocal = native?.objectStoreNames?.contains?.('events');
-                const hasCloud = native?.objectStoreNames?.contains?.('events_cloud');
-                if (hasLocal && hasCloud) {
-                    // Read both and merge
-                    const localEvents = await db.table('events').toArray();
-                    const cloudEvents = await db.table('events_cloud').toArray();
-                    extra = [...localEvents, ...cloudEvents];
-                }
-            } catch {
-                // ignore
-            }
-
-            const byKey = new Map();
-            const add = (e) => {
-                const startMs = new Date(e.startTime).getTime();
-                const endMs = new Date(e.endTime).getTime();
-                const key = e['@id'] || e.id || `${e.title}|${startMs}|${endMs}|${e.projectId ?? ''}`;
-                if (!byKey.has(key)) byKey.set(key, e);
-            };
-            primary?.forEach(add);
-            extra?.forEach(add);
-            return Array.from(byKey.values());
-        } catch {
-            return [];
-        }
-    }, []);
-
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
+    const { data: events = [] } = useEvents();
+    const { data: projects = [] } = useProjects();
 
     // console.log('Loaded events from DB:', events);
     const projectMap = projects?.reduce((map, proj) => {

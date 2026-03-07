@@ -1,9 +1,8 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import PomodoroView from './PomodoroView';
+import { useTask } from '../hooks/useAppData';
 
 export const FocusView = ({ taskId, onExit }) => {
-    const task = useLiveQuery(() => db.tasks.get(taskId), [taskId]);
+    const { data: task } = useTask(taskId);
     
     if (!task) return <div className="text-center p-8">Loading task...</div>;
 

@@ -3,9 +3,6 @@
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
-// Polyfill IndexedDB for Dexie in Jest (jsdom)
-import 'fake-indexeddb/auto';
-
 // Stable crypto.randomUUID for tests
 if (typeof global.crypto === 'undefined') {
   global.crypto = {};

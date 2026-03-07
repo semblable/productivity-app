@@ -1,37 +1,73 @@
 import { useState } from 'react';
 import { ChevronDown, Trash2, Plus } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { useDroppable } from '@dnd-kit/core';
-import { db } from '../db/db';
 import { normalizeNullableId } from '../db/id-utils';
 import { createFolder } from '../db/folder-utils';
 import { deleteFolder } from '../db/folder-utils';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
+import { useTasks } from '../hooks/useAppData';
 
 /**
  * Collapsible header representing a folder of tasks.
  * Children (task list) will be rendered underneath when expanded.
  */
-export const FolderHeader = ({ folder, children, className='', style={} }) => {
+export const FolderHeader = ({ folder, children, className = '', style = {} }) => {
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(true);
 
-  // Live progress calculation
-  const tasksForFolder = useLiveQuery(() => db.tasks.where({ folderId: normalizeNullableId(folder.id) }).toArray(), [folder.id]);
+  const { data: tasksForFolder = [] } = useTasks({ folderId: normalizeNullableId(folder.id) });
   const total = tasksForFolder?.length || 0;
   const completed = tasksForFolder?.filter(t => t.completed).length || 0;
   const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
 
-  const handleDelete = async () => {
-    const confirmationText = `You are about to delete the folder "${folder.name}".\n\n- Click "OK" to delete the folder AND all of its ${total} tasks.\n- Click "Cancel" to delete the folder but KEEP its tasks (they will be moved to Ungrouped).`;
-    const cascade = window.confirm(confirmationText);
-    
-    try {
-      await deleteFolder(folder.id, { cascade });
-      toast.success(`Folder "${folder.name}" deleted.`);
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to delete folder.');
-    }
+  const handleDelete = () => {
+    toast((t) => (
+      <div className="flex flex-col gap-3" style={{ minWidth: '260px' }}>
+        <p className="font-semibold">Delete &quot;{folder.name}&quot;?</p>
+        <p className="text-sm text-gray-500">What should happen to the {total} task{total !== 1 ? 's' : ''} inside?</p>
+        <div className="flex flex-col gap-2">
+          <button
+            className="bg-red-600 hover:bg-red-700 text-white p-2 px-3 rounded text-sm text-left"
+            onClick={async () => {
+              toast.dismiss(t.id);
+              try {
+                await deleteFolder(folder.id, { cascade: true });
+                await queryClient.invalidateQueries();
+                toast.success(`Folder "${folder.name}" and its tasks deleted.`);
+              } catch (err) {
+                console.error(err);
+                toast.error('Failed to delete folder.');
+              }
+            }}
+          >
+            🗑 Delete folder &amp; all tasks
+          </button>
+          <button
+            className="bg-orange-500 hover:bg-orange-600 text-white p-2 px-3 rounded text-sm text-left"
+            onClick={async () => {
+              toast.dismiss(t.id);
+              try {
+                await deleteFolder(folder.id, { cascade: false });
+                await queryClient.invalidateQueries();
+                toast.success(`Folder "${folder.name}" deleted. Tasks moved to Ungrouped.`);
+              } catch (err) {
+                console.error(err);
+                toast.error('Failed to delete folder.');
+              }
+            }}
+          >
+            📂 Delete folder, keep tasks (move to Ungrouped)
+          </button>
+          <button
+            className="bg-gray-500 hover:bg-gray-600 text-white p-2 px-3 rounded text-sm text-left"
+            onClick={() => toast.dismiss(t.id)}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    ), { duration: Infinity });
   };
 
   const progressBarColor = percent < 50 ? 'bg-red-500' : percent < 80 ? 'bg-yellow-500' : 'bg-green-500';
@@ -61,6 +97,7 @@ export const FolderHeader = ({ folder, children, className='', style={} }) => {
               if (name && name.trim()) {
                 try {
                   await createFolder({ name: name.trim(), projectId: folder.projectId, parentId: folder.id });
+                  await queryClient.invalidateQueries();
                   toast.success(`Sub-folder "${name.trim()}" created`);
                 } catch (err) {
                   console.error('Failed to create sub-folder:', err);

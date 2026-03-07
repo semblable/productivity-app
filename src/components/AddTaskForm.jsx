@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
 import { RecurrenceModal } from './RecurrenceModal';
 import { prepareFoldersForDisplay } from '../utils/folderDisplay';
 import { normalizeId, normalizeNullableId } from '../db/id-utils';
+import { api } from '../api/apiClient';
+import { useFolders, useGoals } from '../hooks/useAppData';
 
 const priorityLevels = {
     0: 'None',
@@ -15,6 +16,7 @@ const priorityLevels = {
 };
 
 export const AddTaskForm = ({ projects }) => {
+   const queryClient = useQueryClient();
    const [text, setText] = useState('');
    const [dueDate, setDueDate] = useState('');
    const [projectId, setProjectId] = useState('');
@@ -26,10 +28,9 @@ export const AddTaskForm = ({ projects }) => {
    const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
    const [rrule, setRrule] = useState(null);
 
-   const goals = useLiveQuery(() => db.goals.toArray(), []);
-   const folders = useLiveQuery(
-     () => projectId ? db.folders.where({ projectId: normalizeNullableId(projectId) }).toArray() : [],
-     [projectId]
+   const { data: goals = [] } = useGoals();
+   const { data: folders = [] } = useFolders(
+     projectId ? { projectId: normalizeNullableId(projectId) } : undefined
    );
 
    // Create project map and prepare folders with hierarchy display
@@ -53,7 +54,7 @@ export const AddTaskForm = ({ projects }) => {
      let rruleString = rrule ? rrule.toString() : null;
 
      try {
-         const newTaskId = await db.tasks.add({
+         const task = await api.tasks.create({
          text: text.trim(),
          completed: false,
          createdAt: new Date(),
@@ -69,19 +70,19 @@ export const AddTaskForm = ({ projects }) => {
        });
 
        if (isHabit && rruleString) {
-         await db.habits.add({
-            taskId: newTaskId,
+         await api.habits.create({
+            taskId: task.id,
             name: text.trim(),
             startDate: new Date(),
             streak: 0,
             bestStreak: 0,
             lastCompletionDate: null,
             streakFreezes: 0,
-            streakFriezes: 0,
             lastStreakMilestone: 0
          });
        }
 
+       await queryClient.invalidateQueries();
        setText('');
        setDueDate('');
        setPriority(0);

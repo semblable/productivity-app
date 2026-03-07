@@ -1,14 +1,20 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { durationToSeconds, formatDuration } from '../utils/duration';
-import { db, getDefaultProject } from '../db/db';
+import { getDefaultProject } from '../db/db';
 import toast from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { normalizeId } from '../db/id-utils';
+import { api } from '../api/apiClient';
+import { useProjects, useGoals } from '../hooks/useAppData';
+import { postServiceWorkerCommand } from '../utils/serviceWorkerClient';
 
-export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoalId, onStopTimer, initialEvent, onEventConsumed }, ref) => {
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
+export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoalId, clearActiveGoalId, initialEvent, onEventConsumed }, ref) => {
+    const queryClient = useQueryClient();
+    const { data: projects = [] } = useProjects();
+    const { data: goals = [] } = useGoals();
     const [description, setDescription] = useState('');
     const [projectId, setProjectId] = useState('');
+    const [goalId, setGoalId] = useState('');
     const [duration, setDuration] = useState(0);
     const [manualStartTime, setManualStartTime] = useState('');
     const [manualEndTime, setManualEndTime] = useState('');
@@ -16,6 +22,7 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
     const [trackedEventId, setTrackedEventId] = useState(null);
     const intervalRef = useRef(null);
     const stopInFlightRef = useRef(false);
+    const goalStartInFlightRef = useRef(null);
 
     const getPomodoroDuration = useCallback((timer) => {
         const accumulatedSeconds = Number(timer?.accumulatedSeconds) || 0;
@@ -73,11 +80,12 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
         }
         
         const startedAt = Date.now();
+        const resolvedGoalId = timerData?.goalId ?? activeGoalId ?? (goalId && goalId !== 'none' ? goalId : null);
         const newTimer = {
             description: desc.trim(),
             projectId: normalizeId(pId),
             startTime: startedAt,
-            goalId: activeGoalId || null,
+            goalId: resolvedGoalId,
             eventId: timerData?.eventId ?? trackedEventId ?? null,
             origin: timerData?.origin || 'manual',
             status: 'running',
@@ -90,12 +98,15 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             })(),
         };
         setActiveTimer(newTimer);
+        if (resolvedGoalId && typeof clearActiveGoalId === 'function') {
+            clearActiveGoalId();
+        }
         toast.success("Timer started!");
         // If this timer started from an event, clear the pending event so it doesn't auto-trigger again
         if ((timerData?.eventId ?? trackedEventId) && typeof onEventConsumed === 'function') {
             onEventConsumed();
         }
-    }, [description, projectId, projects, activeGoalId, setActiveTimer, trackedEventId, onEventConsumed]);
+    }, [description, projectId, goalId, projects, activeGoalId, setActiveTimer, trackedEventId, onEventConsumed, clearActiveGoalId]);
 
     // Expose handleStartTimer to parent component via ref
     useImperativeHandle(ref, () => ({
@@ -138,20 +149,44 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
 
     useEffect(() => {
         if (activeGoalId && projects && !activeTimer) {
+            if (goalStartInFlightRef.current === activeGoalId) {
+                return;
+            }
+
+            goalStartInFlightRef.current = activeGoalId;
+            let cancelled = false;
+
             const initGoalTimer = async () => {
-                const goal = await db.goals.get(activeGoalId);
+                const goal = await api.goals.get(activeGoalId);
+                if (cancelled) return;
+
                 if (goal) {
                     setDescription(goal.description);
+                    setGoalId(String(goal.id));
                     if (goal.projectId) {
                         setProjectId(goal.projectId);
                     } else {
                         const defaultProj = await getDefaultProject();
+                        if (cancelled) return;
                         setProjectId(defaultProj.id);
                     }
-                    handleStartTimer({ description: goal.description, projectId: goal.projectId });
+                    await handleStartTimer({
+                        description: goal.description,
+                        projectId: goal.projectId,
+                        goalId: goal.id,
+                    });
                 }
             };
-            initGoalTimer();
+
+            initGoalTimer().finally(() => {
+                if (goalStartInFlightRef.current === activeGoalId) {
+                    goalStartInFlightRef.current = null;
+                }
+            });
+
+            return () => {
+                cancelled = true;
+            };
         }
     }, [activeGoalId, projects, activeTimer, handleStartTimer]);
 
@@ -238,13 +273,13 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
         setManualEndTime(formatForInput(endDate));
     };
 
-    const handlePauseResumeTimer = () => {
+    const handlePauseResumeTimer = async () => {
         if (!activeTimer) return;
 
         if (activeTimer.origin === 'pomodoro') {
-            navigator.serviceWorker.controller?.postMessage({
-                command: isPaused ? 'start' : 'pause',
-            });
+            await postServiceWorkerCommand(
+                isPaused ? 'start' : 'pause'
+            );
             return;
         }
 
@@ -271,10 +306,7 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
         stopInFlightRef.current = true;
 
         if (activeTimer.origin === 'pomodoro') {
-            navigator.serviceWorker.controller?.postMessage({
-                command: 'reset',
-                data: { mode: 'pomodoro' },
-            });
+            await postServiceWorkerCommand('reset', { mode: 'pomodoro' });
             return;
         }
 
@@ -308,31 +340,26 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             }
             if (shouldInsert) {
                 // Additional soft dedupe: look for a same-start same-duration same-context entry
-                const candidate = await db.timeEntries
-                    .where('startTime')
-                    .equals(entry.startTime)
-                    .filter((e) => {
-                        const sameDur = Number(e.duration) === Number(entry.duration);
-                        const sameDesc = String(e.description || '') === String(entry.description || '');
-                        const sameProj = String(e.projectId || '') === String(entry.projectId || '');
-                        const sameGoal = String(e.goalId || '') === String(entry.goalId || '');
-                        const sameEvt = String(e.eventId || '') === String(entry.eventId || '');
-                        return sameDur && sameDesc && sameProj && sameGoal && sameEvt;
-                    })
-                    .first();
+                const entriesAtStart = await api.timeEntries.list({ startTime: entry.startTime.toISOString() });
+                const candidate = entriesAtStart.find((e) => {
+                    const sameDur = Number(e.duration) === Number(entry.duration);
+                    const sameDesc = String(e.description || '') === String(entry.description || '');
+                    const sameProj = String(e.projectId || '') === String(entry.projectId || '');
+                    const sameGoal = String(e.goalId || '') === String(entry.goalId || '');
+                    const sameEvt = String(e.eventId || '') === String(entry.eventId || '');
+                    return sameDur && sameDesc && sameProj && sameGoal && sameEvt;
+                });
                 if (candidate) {
                     shouldInsert = false;
                 }
             }
             if (shouldInsert) {
-                await db.timeEntries.add(entry);
+                await api.timeEntries.create(entry);
+                await queryClient.invalidateQueries();
             }
 
-            // Goal progress is now computed live from time entries (entry.goalId),
-            // so no incremental counter updates are needed here.
             if (shouldInsert) {
                 if (activeTimer.goalId) {
-                    onStopTimer(finalDuration);
                     toast.success("Time logged!");
                 } else {
                     toast.success("Time entry saved!");
@@ -394,14 +421,17 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             setProjectId(finalProjectId);
         }
         
+        const resolvedGoalId = goalId && goalId !== 'none' ? normalizeId(goalId) : null;
         try {
-            await db.timeEntries.add({
+            await api.timeEntries.create({
                 description: description.trim(),
                 projectId: normalizeId(finalProjectId),
+                goalId: resolvedGoalId,
                 startTime: start,
                 endTime: end,
                 duration: durationSeconds,
             });
+            await queryClient.invalidateQueries();
             setDescription('');
             setManualStartTime('');
             setManualEndTime('');
@@ -428,6 +458,7 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
                 onChange={e => {
                     const newProjectId = e.target.value;
                     setProjectId(newProjectId);
+                    setGoalId(''); // Reset goal when project changes
                     // Store the last used project
                     if (newProjectId) {
                         localStorage.setItem('lastUsedProjectId', newProjectId.toString());
@@ -437,6 +468,20 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
                 disabled={!!activeTimer}
             >
                 {projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <select
+                value={goalId || 'none'}
+                onChange={e => setGoalId(e.target.value)}
+                className="p-2 rounded-md bg-secondary text-foreground focus:ring-2 focus:ring-ring focus:outline-none min-w-[180px]"
+                disabled={!!activeTimer}
+                title="Link to goal (for progress tracking)"
+            >
+                <option value="none">No goal</option>
+                {(goals || [])
+                    .filter(g => !projectId || String(g.projectId || '') === String(projectId))
+                    .map(g => (
+                        <option key={g.id} value={g.id}>{g.description}</option>
+                    ))}
             </select>
             {!activeTimer && (
                 <div className="flex flex-col gap-2">

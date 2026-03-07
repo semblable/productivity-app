@@ -1,10 +1,9 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
 import { Bar, Pie } from 'react-chartjs-2';
 import { useState, useEffect, useMemo } from 'react';
 import { DataTools } from './DataTools';
 import GoalsSummary from './GoalsSummary';
+import { useProjects, useTasks, useTimeEntries } from '../hooks/useAppData';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 
@@ -66,9 +65,9 @@ export const DashboardView = ({ onShowReview = () => {} }) => {
     const [period, setPeriod] = useState('month');
     const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
-    const projects   = useLiveQuery(() => db.projects.toArray(), []);
-    const tasks      = useLiveQuery(() => db.tasks.toArray(), []);
-    const timeEntries = useLiveQuery(() => db.timeEntries.toArray(), []);
+    const { data: projects = [] } = useProjects();
+    const { data: tasks = [] } = useTasks();
+    const { data: timeEntries = [] } = useTimeEntries();
 
     useEffect(() => {
         const handleThemeChange = () => setTheme(localStorage.getItem('theme') || 'dark');

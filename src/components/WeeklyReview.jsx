@@ -1,9 +1,11 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
+import { useMemo } from 'react';
+import { useTasks, useTimeEntries } from '../hooks/useAppData';
 
 export const WeeklyReview = ({ onExit }) => {
-    // Fetch all the data we care about for the previous 7 days
-    const data = useLiveQuery(async () => {
+    const { data: tasks = [] } = useTasks();
+    const { data: timeEntries = [] } = useTimeEntries();
+
+    const data = useMemo(() => {
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
@@ -12,7 +14,7 @@ export const WeeklyReview = ({ onExit }) => {
         // include tasks whose createdAt may be stored as a string (older backups) or tasks that
         // have since been removed. We fetch all tasks and then filter in JS to handle both Date
         // and string representations consistently.
-        const recentTasks = (await db.tasks.toArray()).filter(t => {
+        const recentTasks = tasks.filter(t => {
             // Rule 1: Must be a top-level task, not a database-level subtask or recurring template.
             const isSubtask = t.parentId !== null && t.parentId !== undefined;
             const isRecurringTemplate = t.rrule && !t.templateId;
@@ -34,19 +36,16 @@ export const WeeklyReview = ({ onExit }) => {
 
         /* ---------------------------  TIME ENTRIES  -------------------------- */
         // NOTE: The correct table name is `timeEntries` (camel-case)
-        const timeEntries = await db.timeEntries
-            .where('endTime')
-            .above(oneWeekAgo)
-            .toArray();
+        const recentEntries = timeEntries.filter((entry) => new Date(entry.endTime) > oneWeekAgo);
 
-        const totalDuration = timeEntries.reduce((sum, entry) => sum + (entry.duration || 0), 0);
+        const totalDuration = recentEntries.reduce((sum, entry) => sum + (entry.duration || 0), 0);
         const hours   = Math.floor(totalDuration / 3600);
         const minutes = Math.floor((totalDuration % 3600) / 60);
 
         return {
             completedTasks,
             pendingTasks,
-            timeEntries,
+            timeEntries: recentEntries,
             stats: {
                 tasksCreated: recentTasks.length,
                 tasksCompleted: completedTasks.length,
@@ -54,7 +53,7 @@ export const WeeklyReview = ({ onExit }) => {
                 totalTracked: `${hours}h ${minutes}m`
             }
         };
-    }, []);
+    }, [tasks, timeEntries]);
 
     return (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-95 z-[11000] p-8 overflow-y-auto">

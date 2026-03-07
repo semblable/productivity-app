@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
+import { useQueryClient } from '@tanstack/react-query';
 import { createFolder } from '../db/folder-utils';
 import { normalizeId } from '../db/id-utils';
 import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
+import { useProjects } from '../hooks/useAppData';
 
 /**
  * Form to create a folder. If no projectId prop is supplied, the user can pick a project.
  */
 export const AddFolderForm = ({ projectId: initialProjectId }) => {
-  const projects = useLiveQuery(() => db.projects.toArray(), []);
+  const queryClient = useQueryClient();
+  const { data: projects = [] } = useProjects();
   const [projectId, setProjectId] = useState(initialProjectId || '');
   const [name, setName] = useState('');
 
@@ -27,6 +28,7 @@ export const AddFolderForm = ({ projectId: initialProjectId }) => {
     if (!projectId) return toast.error('Select a project');
     try {
       await createFolder({ name: name.trim(), projectId: normalizeId(projectId) });
+      await queryClient.invalidateQueries();
       toast.success('Folder created');
       setName('');
     } catch (err) {

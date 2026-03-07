@@ -1,6 +1,6 @@
 # My Local Planner
 
-Local-first productivity app for tasks, calendar, habits, time tracking, notes, and weekly reviews. Works offline via IndexedDB, with optional Dexie Cloud sync and optional Gemini-powered task generation.
+Local-first productivity app for tasks, calendar, habits, time tracking, notes, and weekly reviews. Powered by a local SQLite database provided by the companion NodeJS backend, with optional Gemini-powered task generation.
 
 ## Features
 - Tasks with projects and nested folders (drag-and-drop ordering)
@@ -11,7 +11,7 @@ Local-first productivity app for tasks, calendar, habits, time tracking, notes, 
 - Habits with streaks and heatmap view
 - Weekly review checklist
 - Light/Dark theme
-- Offline-first persistence (IndexedDB)
+- Local persistence (SQLite via REST API)
 
 ## Setup
 1) Install dependencies
@@ -20,9 +20,6 @@ npm install
 ```
 2) (Optional) Create a `.env` file at the project root and add any of the following:
 ```ini
-# Dexie Cloud sync (optional)
-REACT_APP_DEXIE_CLOUD_URL=https://YOUR-DB.dexie.cloud
-
 # Gemini task generation (optional)
 REACT_APP_GEMINI_API_KEY=your_api_key_here
 ```
@@ -51,7 +48,7 @@ npm run startup:remove
 The startup entry launches the built app from `build` on port `4173` and opens your browser to `/dashboard`.
 
 Optional features:
-- Dexie Cloud buttons (Login/Sync/Logout) appear in Tools when `REACT_APP_DEXIE_CLOUD_URL` is set
+
 - “⚡ Generate Tasks” in Notes appears when `REACT_APP_GEMINI_API_KEY` is set
 
 ## License

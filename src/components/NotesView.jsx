@@ -1,12 +1,13 @@
 import { useState, useCallback, useRef } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import debounce from 'lodash.debounce';
 import { Plus, Trash2, Edit2, Eye } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AIConvertButton } from './AIConvertButton';
+import { api } from '../api/apiClient';
+import { useNotes } from '../hooks/useAppData';
 
 // Helper to ensure content is always treated as a string
 const getContentString = (content) => {
@@ -27,7 +28,8 @@ const getNoteTitle = (note) => {
 };
 
 export const NotesView = () => {
-    const notes = useLiveQuery(() => (db.notes || db.notes_cloud).orderBy('modifiedAt').reverse().toArray(), []);
+    const queryClient = useQueryClient();
+    const { data: notes = [] } = useNotes();
     const [activeNote, setActiveNote] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [viewMode, setViewMode] = useState('view'); // 'edit' or 'view'
@@ -43,18 +45,20 @@ export const NotesView = () => {
             createdAt: new Date(),
             modifiedAt: new Date(),
         };
-        const target = db.notes || db.notes_cloud;
-        const id = await target.add(newNote);
-        setActiveNote({ ...newNote, id });
+        const created = await api.notes.create({
+            ...newNote,
+            title: 'New Note',
+        });
+        await queryClient.invalidateQueries();
+        setActiveNote(created);
         setViewMode('edit'); // Switch to edit mode for new note
     };
 
-    const updateNoteInDb = (id, content) => {
+    const updateNoteInDb = async (id, content) => {
         if (id) {
-            const target = db.notes || db.notes_cloud;
-            target.update(id, { content, modifiedAt: new Date() }).then(() => {
-                setIsSaving(false);
-            });
+            await api.notes.update(id, { content, modifiedAt: new Date() });
+            await queryClient.invalidateQueries();
+            setIsSaving(false);
         }
     };
     
@@ -73,8 +77,8 @@ export const NotesView = () => {
     }, [activeNote, debouncedUpdate]);
 
     const deleteNote = async (id) => {
-        const target = db.notes || db.notes_cloud;
-        await target.delete(id);
+        await api.notes.remove(id);
+        await queryClient.invalidateQueries();
         toast.success("Note deleted.");
         if (activeNote && activeNote.id === id) {
             setActiveNote(null);

@@ -1,41 +1,27 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from './db';
-import { normalizeNullableId } from './id-utils';
+import { api } from '../api/apiClient';
+import { useGoals as useGoalsQuery } from '../hooks/useAppData';
 
-// Hooks
-export const useGoals = () => useLiveQuery(() => db.goals.toArray(), []);
-
-// Queries
-export const listGoals = async () => db.goals.toArray();
-export const getGoalById = async (goalId) => db.goals.get(goalId);
-export const listGoalsByProjectId = async (projectId) => {
-	return db.goals.where({ projectId: normalizeNullableId(projectId) }).toArray();
+export const useGoals = () => {
+  const { data = [] } = useGoalsQuery();
+  return data;
 };
 
-// Mutations
-export const createGoal = async (goal) => {
-	return db.goals.add({
-		...goal,
-		projectId: normalizeNullableId(goal.projectId),
-	});
-};
+export const listGoals = async () => api.goals.list();
+export const getGoalById = async (goalId) => api.goals.get(goalId);
+export const listGoalsByProjectId = async (projectId) =>
+  api.goals.list({ projectId: projectId ?? 'null' });
 
-export const updateGoal = async (goalId, changes) => {
-	const payload = { ...changes };
-	if ('projectId' in payload) {
-		payload.projectId = normalizeNullableId(payload.projectId);
-	}
-	return db.goals.update(goalId, payload);
-};
+export const createGoal = async (goal) => api.goals.create(goal);
 
-export const deleteGoal = async (goalId) => db.goals.delete(goalId);
+export const updateGoal = async (goalId, changes) => api.goals.update(goalId, changes);
+
+export const deleteGoal = async (goalId) => api.goals.remove(goalId);
 
 export const deleteGoalsByProjectId = async (projectId) => {
-	const ids = await db.goals.where({ projectId: normalizeNullableId(projectId) }).primaryKeys();
-	if (ids && ids.length > 0) {
-		return db.goals.bulkDelete(ids);
-	}
-	return undefined;
+  const goals = await api.goals.list({ projectId: projectId ?? 'null' });
+  const ids = goals.map((goal) => goal.id);
+  if (ids.length > 0) {
+    return api.goals.bulkRemove(ids);
+  }
+  return undefined;
 };
-
-

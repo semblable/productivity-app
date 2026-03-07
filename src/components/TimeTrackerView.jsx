@@ -1,11 +1,10 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import { TimeTracker } from './TimeTracker';
 import { TimeEntryList } from './TimeEntryList';
 import { useRef } from 'react';
+import { useProjects } from '../hooks/useAppData';
 
-export const TimeTrackerView = ({ activeTimer, setActiveTimer, activeGoalId, onStopTimer, eventToTrack, clearEventToTrack }) => {
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
+export const TimeTrackerView = ({ activeTimer, setActiveTimer, activeGoalId, clearActiveGoalId, eventToTrack, clearEventToTrack }) => {
+    const { data: projects = [] } = useProjects();
     const timeTrackerRef = useRef();
 
     if (!projects) return <div className="text-gray-400">Loading...</div>;
@@ -24,9 +23,9 @@ export const TimeTrackerView = ({ activeTimer, setActiveTimer, activeGoalId, onS
                 setActiveTimer={setActiveTimer}
                 projects={projects}
                 activeGoalId={activeGoalId}
+                clearActiveGoalId={clearActiveGoalId}
                 initialEvent={eventToTrack}
                 onEventConsumed={clearEventToTrack}
-                onStopTimer={onStopTimer}
             />
             <TimeEntryList onStartTimer={handleStartTimerFromEntry} activeTimer={activeTimer} />
         </div>

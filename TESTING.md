@@ -7,11 +7,10 @@ This document summarizes the current testing setup, existing tests, the latest c
 - Test runner: Create React App (CRA) `react-scripts test` (Jest + React Testing Library)
 - Environment bootstrap: `src/setupTests.js`
   - `@testing-library/jest-dom`
-  - `fake-indexeddb/auto` to emulate IndexedDB for Dexie
+
   - Stable `crypto.randomUUID` polyfill
   - Basic `Notification` mock with permission granted by default
   - `matchMedia` and `scrollTo` no-ops
-- Dev dependency: `fake-indexeddb` (installed)
 
 Commands
 - Run all tests with coverage (non-watch):
@@ -66,10 +65,10 @@ import React from 'react';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AppProvider } from '../context/AppContext';
-import { db } from '../db/db';
+import { api } from '../api/apiClient';
 
-export async function resetDb() {
-  await Promise.all(db.tables.map(t => t.clear()));
+export async function resetMocks() {
+  jest.clearAllMocks();
 }
 
 export function renderWithProviders(ui, { route = '/', wrapperProps = {} } = {}) {
@@ -93,7 +92,6 @@ export function renderWithProviders(ui, { route = '/', wrapperProps = {} } = {})
   jest.mock('react-hot-toast', () => ({ __esModule: true, default: { success: jest.fn(), error: jest.fn() }, Toaster: () => null }));
   ```
 - `RecurrenceModal`: provide a stub with an exposed `onSave('RRULE:...')` to drive flows
-- Dexie Cloud default UI: if it logs errors in jsdom, stub via `jest.mock('dexie-cloud-addon', () => () => ({}));`
 
 ## Prioritized future tests
 
@@ -135,8 +133,8 @@ export function renderWithProviders(ui, { route = '/', wrapperProps = {} } = {})
   - Redirect `/` -> `/tracker` when `activeTimer` set; otherwise `/dashboard`
 
 Notes
-- Prefer DB-backed assertions via `fake-indexeddb` for realistic flows
-- For DnD in `TodoView`, defer complex pointer interactions; instead assert DB side effects (or cover via extracted utility in future refactor)
+- Prefer API client mocks backed by test data arrays for realistic flows
+- For DnD in `TodoView`, defer complex pointer interactions; instead assert API side effects (or cover via extracted utility in future refactor)
 
 ### 3) E2E tests (Playwright suggested)
 - Flows
@@ -145,11 +143,11 @@ Notes
   - Start Pomodoro and ensure time auto-logs on stop (mock SW messages where needed)
   - Track time manually and via goal; goal progress bars update
   - Habit creation from recurring task and streak updates (basic)
-- Data isolation: use a separate browser context/user data dir per test; clear IndexedDB between tests
+- Data isolation: use a separate browser context/user data dir per test; clear API database between E2E tests
 
 ## Test data & lifecycle patterns
 
-- Use `resetDb()` before each test that hits Dexie
+- Use `resetMocks()` before each test that hits the API client
 - Seed helpers (to add): `seedProjects`, `seedTasks`, `seedEvents`, `seedGoals` returning created IDs
 - Prefer deterministic timestamps (use fake timers or inject clocks) to avoid flakiness
 

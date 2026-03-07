@@ -1,14 +1,13 @@
-import { db } from './db';
-import { normalizeId, normalizeNullableId } from './id-utils';
+import { api } from '../api/apiClient';
 
 /**
- * Recursively add a tree of tasks to Dexie in a single transaction.
+ * Recursively add a tree of tasks to the database in a single transaction.
  * Each node should have shape: { text: string, children?: array }
  * @param {Array} tree Root tasks array
  * @param {number} projectId Project to assign to tasks
  */
 /**
- * Recursively add a tree of tasks to Dexie.
+ * Recursively add a tree of tasks to the database.
  * Optionally assign all tasks to a folder.
  * @param {Array} tree Hierarchical task array
  * @param {number} projectId Project id to assign tasks
@@ -28,11 +27,11 @@ export const bulkAddTasks = async (tree = [], projectId, folderId = null) => {
     };
   };
 
-  // Convert root nodes into task rows for Dexie. Sub-tasks are embedded, not separate rows.
+  // Convert root nodes into task objects. Sub-tasks are embedded, not separate rows.
   const tasksToInsert = tree.map((node, idx) => ({
     text: node.text || '',
-    projectId: normalizeId(projectId),
-    folderId: normalizeNullableId(folderId),
+    projectId,
+    folderId,
     order: idx,
     parentId: null,
     completed: false,
@@ -41,5 +40,5 @@ export const bulkAddTasks = async (tree = [], projectId, folderId = null) => {
     subtasks: Array.isArray(node.children) ? node.children.map(buildSubtask) : [],
   }));
 
-  await db.tasks.bulkAdd(tasksToInsert);
+  await api.tasks.bulkCreate(tasksToInsert);
 }; 

@@ -1,7 +1,6 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import { TimeEntryItem } from './TimeEntryItem';
 import { useState } from 'react';
+import { useProjects, useTimeEntries } from '../hooks/useAppData';
 
 export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
     const [filter, setFilter] = useState('week'); // 'today', 'week', 'month', 'all', 'custom'
@@ -12,9 +11,10 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
     const DEFAULT_ALL_LIMIT = 300;
     const [allLimit, setAllLimit] = useState(DEFAULT_ALL_LIMIT);
 
-    const projects = useLiveQuery(() => db.projects.toArray(), []);
+    const { data: projects = [] } = useProjects();
+    const { data: allEntries = [] } = useTimeEntries();
 
-    const entries = useLiveQuery(async () => {
+    const entries = (() => {
         // Use a consistent, type-safe approach that works even if some backups stored dates as strings
         const getTime = (value) => {
             const t = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -66,48 +66,22 @@ export const TimeEntryList = ({ onStartTimer, activeTimer }) => {
             }
             case 'all':
             default: {
-                // For performance, only load the most recent N entries for "All Time"
-                try {
-                    return await db.timeEntries
-                        .orderBy('startTime')
-                        .reverse()
-                        .limit(allLimit)
-                        .toArray();
-                } catch {
-                    // Fallback: load all then slice client-side (kept for mixed data compatibility)
-                    const all = await db.timeEntries.toArray();
-                    return all
-                        .slice()
-                        .sort((a, b) => getTime(b.startTime) - getTime(a.startTime))
-                        .slice(0, allLimit);
-                }
+                return allEntries
+                    .slice()
+                    .sort((a, b) => getTime(b.startTime) - getTime(a.startTime))
+                    .slice(0, allLimit);
             }
         }
 
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return [];
 
-        // Prefer indexed range query when possible; fall back to client-side filtering if needed
-        try {
-            const rangeResults = await db.timeEntries
-                .where('startTime')
-                .between(new Date(startMs), new Date(endMs), true, true)
-                .toArray();
-            return rangeResults
-                .filter((e) => {
-                    const t = getTime(e.startTime);
-                    return t >= startMs && t <= endMs;
-                })
-                .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
-        } catch {
-            const all = await db.timeEntries.toArray();
-            return all
-                .filter((e) => {
-                    const t = getTime(e.startTime);
-                    return t >= startMs && t <= endMs;
-                })
-                .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
-        }
-    }, [filter, customRange, allLimit]);
+        return allEntries
+            .filter((e) => {
+                const t = getTime(e.startTime);
+                return t >= startMs && t <= endMs;
+            })
+            .sort((a, b) => getTime(b.startTime) - getTime(a.startTime));
+    })();
 
     /* ------------------------------------------------------------------ */
     /* Build a map of project id -> project to avoid repeated look-ups    */

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { db } from '../db/db';
+import { useQueryClient } from '@tanstack/react-query';
 import { normalizeNullableId } from '../db/id-utils';
 import { durationToSeconds, formatDuration } from '../utils/duration';
 import toast from 'react-hot-toast';
-import { logTimeToProjectGoals, logTimeToGoal } from '../db/time-entry-utils';
+import { recalculateGoalHours } from '../db/time-entry-utils';
+import { api } from '../api/apiClient';
 
 export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTimer }) => {
+    const queryClient = useQueryClient();
     const formatDateForInput = (date) => {
         try {
             const d = new Date(date);
@@ -91,38 +93,20 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
             }
 
             const normalizedProjectId = normalizeNullableId(editProjectId);
-            const previousProjectId = normalizeNullableId(entry.projectId);
             const previousDuration = Number(entry.duration) || 0;
             const end = new Date(start.getTime() + durationSeconds * 1000);
 
-            const shouldRecalculateProjectGoals =
-                String(previousProjectId ?? '') !== String(normalizedProjectId ?? '') ||
-                previousDuration !== durationSeconds;
-
-            await db.transaction('rw', db.timeEntries, db.goals, async () => {
-                // Remove this entry's previous duration from the old project before re-applying with new values.
-                if (shouldRecalculateProjectGoals && previousProjectId) {
-                    await logTimeToProjectGoals(previousProjectId, -previousDuration, entry.goalId);
-                }
-                // Apply this entry's new duration to the selected project.
-                if (shouldRecalculateProjectGoals && normalizedProjectId) {
-                    await logTimeToProjectGoals(normalizedProjectId, durationSeconds, entry.goalId);
-                }
-
-                // Keep goal-level progress in sync when duration changes (even for goal-scoped timers).
-                if (entry.goalId && previousDuration !== durationSeconds) {
-                    const deltaSeconds = durationSeconds - previousDuration;
-                    await logTimeToGoal(entry.goalId, deltaSeconds);
-                }
-
-                await db.timeEntries.update(entry.id, {
-                    description: editDescription,
-                    projectId: normalizedProjectId,
-                    startTime: start,
-                    endTime: end,
-                    duration: durationSeconds,
-                });
+            await api.timeEntries.update(entry.id, {
+                description: editDescription,
+                projectId: normalizedProjectId,
+                startTime: start,
+                endTime: end,
+                duration: durationSeconds,
             });
+            if (entry.goalId && previousDuration !== durationSeconds) {
+                await recalculateGoalHours(entry.goalId);
+            }
+            await queryClient.invalidateQueries();
             toast.success('Entry updated');
             setIsEditing(false);
         } catch (e) {
@@ -134,19 +118,11 @@ export const TimeEntryItem = ({ entry, project, projects, onStartTimer, activeTi
     const deleteEntry = async () => {
         if (window.confirm('Are you sure you want to delete this time entry?')) {
             try {
-                const duration = Number(entry.duration) || 0;
-                await db.transaction('rw', db.timeEntries, db.goals, async () => {
-                    if (duration > 0) {
-                        const projectId = normalizeNullableId(entry.projectId);
-                        if (projectId) {
-                            await logTimeToProjectGoals(projectId, -duration, entry.goalId);
-                        }
-                        if (entry.goalId) {
-                            await logTimeToGoal(entry.goalId, -duration);
-                        }
-                    }
-                    await db.timeEntries.delete(entry.id);
-                });
+                await api.timeEntries.remove(entry.id);
+                if (entry.goalId) {
+                    await recalculateGoalHours(entry.goalId);
+                }
+                await queryClient.invalidateQueries();
                 toast.success('Entry deleted');
             } catch (err) {
                 toast.error('Failed to delete entry.');

@@ -8,7 +8,6 @@ import { NotesView } from './components/NotesView';
 import PomodoroView from './components/PomodoroView';
 import HabitsView from './components/HabitsView';
 import { useAppContext } from './context/AppContext';
-import { logTimeToGoal } from './db/time-entry-utils';
 
 export function AppRoutes({ handleStartFocus, handleSelectSlot, handleSelectEvent }) {
   const { appState, setState } = useAppContext();
@@ -31,14 +30,9 @@ export function AppRoutes({ handleStartFocus, handleSelectSlot, handleSelectEven
             activeTimer={activeTimer}
             setActiveTimer={(timer) => setState({ activeTimer: timer })}
             activeGoalId={activeGoalId}
+            clearActiveGoalId={() => setState({ activeGoalId: null })}
             eventToTrack={eventToTrack}
             clearEventToTrack={() => setState({ eventToTrack: null })}
-            onStopTimer={async (duration) => {
-              if (activeGoalId && duration > 0) {
-                await logTimeToGoal(activeGoalId, duration);
-                setState({ activeGoalId: null });
-              }
-            }}
           />
         }
       />

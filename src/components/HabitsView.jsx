@@ -1,6 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import HabitCalendar from './HabitCalendar';
 import './HabitCalendar.css';
 import { AddHabitForm } from './AddHabitForm';
@@ -9,8 +7,11 @@ import toast from 'react-hot-toast';
 import { deleteHabit, updateHabitName, updateHabit, uncompleteHabitToday } from '../db/habit-utils';
 import { normalizeNullableId } from '../db/id-utils';
 import { format } from 'date-fns';
+import { useHabitCompletions, useHabits, useProjects } from '../hooks/useAppData';
+import { useQueryClient } from '@tanstack/react-query';
 
 const EditHabitForm = ({ habit, onUpdate, onCancel, allProjects }) => {
+    const queryClient = useQueryClient();
     const [name, setName] = useState(habit.name);
     const [projectId, setProjectId] = useState(habit.projectId || '');
 
@@ -21,6 +22,7 @@ const EditHabitForm = ({ habit, onUpdate, onCancel, allProjects }) => {
             return;
         }
         await updateHabitName(habit.id, name.trim(), normalizeNullableId(projectId));
+        await queryClient.invalidateQueries();
         toast.success("Habit updated!");
         onUpdate();
     };
@@ -51,16 +53,18 @@ const EditHabitForm = ({ habit, onUpdate, onCancel, allProjects }) => {
 }
 
 const HabitItem = ({ habit, allProjects }) => {
+    const queryClient = useQueryClient();
     const [showMenu, setShowMenu] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const menuRef = useRef(null);
 
-    const isCompletedToday = useLiveQuery(() => {
-        const todayStr = format(new Date(), 'yyyy-MM-dd');
-        return db.habit_completions
-            .where({ habitId: habit.id, date: todayStr })
-            .first();
-    }, [habit.id]);
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const { data: todaysCompletions = [] } = useHabitCompletions({
+        habitId: habit.id,
+        date: todayStr,
+        _limit: 1,
+    });
+    const isCompletedToday = todaysCompletions[0];
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -81,6 +85,7 @@ const HabitItem = ({ habit, allProjects }) => {
             } else {
                 await updateHabit(habit.taskId);
             }
+            await queryClient.invalidateQueries();
         } catch (error) {
             toast.error("Failed to update habit completion.");
             console.error(error);
@@ -91,6 +96,7 @@ const HabitItem = ({ habit, allProjects }) => {
         if (window.confirm(`Are you sure you want to delete the habit "${habit.name}"? This also deletes the associated recurring task and all completion history.`)) {
             try {
                 await deleteHabit(habit.id, habit.taskId);
+                await queryClient.invalidateQueries();
                 toast.success("Habit deleted.");
             } catch (error) {
                 toast.error("Failed to delete habit.");
@@ -171,8 +177,8 @@ const HabitItem = ({ habit, allProjects }) => {
 };
 
 const HabitsView = () => {
-  const habits = useLiveQuery(() => db.habits.orderBy('name').toArray(), []);
-  const projects = useLiveQuery(() => db.projects.toArray(), []);
+  const { data: habits = [] } = useHabits({ _orderBy: 'name ASC' });
+  const { data: projects = [] } = useProjects();
   const [showAddForm, setShowAddForm] = useState(false);
 
   return (

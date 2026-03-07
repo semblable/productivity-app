@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
+import { useEvents, useTasks } from './useAppData';
 
 // Function to schedule a single notification for a specific time
 // Keep track of scheduled notification timeouts so they can be canceled
@@ -71,8 +70,8 @@ export const clearEventNotificationFlags = (eventId) => {
 };
 
 export const useNotifications = () => {
-  const tasks = useLiveQuery(() => db.tasks.toArray());
-  const events = useLiveQuery(() => db.events.toArray());
+  const { data: tasks = [] } = useTasks();
+  const { data: events = [] } = useEvents();
 
   // Function to request notification permission
   const requestNotificationPermission = async () => {

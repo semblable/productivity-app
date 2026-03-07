@@ -1,19 +1,23 @@
 import { useState, useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { db, projectColors } from '../db/db';
+import { queryKeys } from '../api/queryKeys';
+import { projectColors } from '../db/db';
 import { useGoals, createGoal, updateGoal as updateGoalRepo, deleteGoal as deleteGoalRepo, deleteGoalsByProjectId } from '../db/goals-repository';
 import { cancelScheduledNotification, clearEventNotificationFlags } from '../hooks/useNotifications';
 import { normalizeNullableId } from '../db/id-utils';
 import { Plus, Trash2, Play, Edit } from 'lucide-react';
 import { DAY_SELECTOR, PRESET_WEEKDAYS, PRESET_ALL_DAYS, calculateDailyPlan, formatHours } from '../utils/goalSchedule';
+import { api } from '../api/apiClient';
+import { useProjects, useTimeEntries } from '../hooks/useAppData';
 
 export const ProjectManager = ({ onStartGoalTimer }) => {
+    const queryClient = useQueryClient();
     const [newProjectName, setNewProjectName] = useState('');
     const [selectedColor, setSelectedColor] = useState(projectColors[0]);
-    const projects    = useLiveQuery(() => db.projects.toArray());
-    const goals       = useGoals();
-    const timeEntries = useLiveQuery(() => db.timeEntries.toArray(), []);
+    const { data: projects = [] } = useProjects();
+    const goals = useGoals();
+    const { data: timeEntries = [] } = useTimeEntries();
 
     // goalId → total tracked seconds from time entries tagged to each goal
     const goalTimeMap = useMemo(() => {
@@ -34,14 +38,14 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
         if (!goals) return [];
         return goals.map(goal => {
             const totalSeconds = goalTimeMap[String(goal.id)] || 0;
-            const actualHours  = totalSeconds / 3600;
-            const progress     = goal.targetHours > 0
+            const actualHours = totalSeconds / 3600;
+            const progress = goal.targetHours > 0
                 ? Math.min(100, Math.round((actualHours / goal.targetHours) * 100))
                 : 0;
             return { ...goal, actualHours, progress };
         });
     }, [goals, goalTimeMap]);
-    
+
     // New state for time goals
     const [goalDescription, setGoalDescription] = useState('');
     const [targetHours, setTargetHours] = useState('');
@@ -102,13 +106,14 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
     const addProject = async (e) => {
         e.preventDefault();
         if (!newProjectName.trim()) return toast.error("Project name cannot be empty.");
-        
+
         try {
-            await db.projects.add({ 
-                name: newProjectName.trim(), 
+            await api.projects.create({
+                name: newProjectName.trim(),
                 color: selectedColor,
-                createdAt: new Date() 
+                createdAt: new Date()
             });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
             setNewProjectName('');
             toast.success("Project added!");
         } catch (error) {
@@ -120,25 +125,25 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
             }
         }
     };
-    
+
     // Add new time goal
     const addGoal = async (e) => {
         e.preventDefault();
         let hasErrors = false;
         const newErrors = {};
-        
+
         // Validate inputs
         if (!goalDescription.trim()) {
             newErrors.description = "Goal description is required";
             hasErrors = true;
         }
-        
+
         const hours = parseFloat(targetHours);
         if (isNaN(hours) || hours <= 0) {
             newErrors.targetHours = "Target hours must be a positive number";
             hasErrors = true;
         }
-        
+
         const completed = parseFloat(hoursCompleted);
         if (isNaN(completed) || completed < 0) {
             newErrors.hoursCompleted = "Hours completed must be a non-negative number";
@@ -161,15 +166,15 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                 hasErrors = true;
             }
         }
-        
+
         if (hasErrors) {
             setErrors(newErrors);
             return;
         }
-        
+
         // Add new goal
         const progress = Math.min(100, Math.round((completed / hours) * 100));
-        
+
         const newGoal = {
             description: goalDescription.trim(),
             targetHours: hours,
@@ -181,9 +186,10 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
             createdAt: new Date(),
             projectId: normalizeNullableId(goalProjectId),
         };
-        
+
         try {
             await createGoal(newGoal);
+            await queryClient.invalidateQueries({ queryKey: queryKeys.goals });
             setGoalDescription('');
             setTargetHours('');
             setDeadline('');
@@ -198,23 +204,26 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
             toast.error("Failed to add goal.");
         }
     };
-    
-    // Log hours to an existing goal (centralized via time-entry utils)
+
+    // Log hours to an existing goal
     const logHours = async (goalId, hours) => {
         try {
             const seconds = Math.round(parseFloat(hours) * 3600);
-            if (!isNaN(seconds) && seconds > 0) {
+            if (!isNaN(seconds) && seconds !== 0) {
                 const goal = goals?.find(g => String(g.id) === String(goalId));
-                const endTime   = new Date();
-                const startTime = new Date(endTime.getTime() - seconds * 1000);
-                await db.timeEntries.add({
+                const endTime = new Date();
+                const startTime = new Date(endTime.getTime() - Math.abs(seconds) * 1000);
+                await api.timeEntries.create({
                     description: goal?.description || 'Manual log',
-                    projectId:   goal?.projectId ?? null,
+                    projectId: goal?.projectId ?? null,
                     goalId,
                     startTime,
                     endTime,
                     duration: seconds,
                 });
+                await api.goals.recalculate(goalId);
+                await queryClient.invalidateQueries({ queryKey: queryKeys.goals });
+                await queryClient.invalidateQueries({ queryKey: queryKeys.timeEntries });
                 toast.success("Hours logged!");
             } else {
                 toast.error("Please enter a valid number of hours.");
@@ -222,6 +231,31 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
         } catch (error) {
             console.error("Failed to log hours:", error);
             toast.error("Failed to log hours.");
+        }
+    };
+
+    const handleSetTotalHours = async (goal, newTotal) => {
+        if (isNaN(newTotal) || newTotal < 0) return;
+        const original = goal.actualHours || 0;
+        const diffHours = newTotal - original;
+        if (diffHours === 0) return;
+        const seconds = Math.round(diffHours * 3600);
+        try {
+            await api.timeEntries.create({
+                description: 'Manual adjustment',
+                projectId: goal.projectId || null,
+                goalId: goal.id,
+                startTime: new Date(),
+                endTime: new Date(),
+                duration: seconds,
+            });
+            await api.goals.recalculate(goal.id);
+            await queryClient.invalidateQueries({ queryKey: queryKeys.goals });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.timeEntries });
+            toast.success("Total hours updated!");
+        } catch (e) {
+            console.error("Failed to update total hours:", e);
+            toast.error("Failed to update total hours");
         }
     };
 
@@ -237,6 +271,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                             try {
                                 // console.log('[Goal] Deleting goal', id);
                                 await deleteGoalRepo(id);
+                                await queryClient.invalidateQueries({ queryKey: queryKeys.goals });
                                 toast.success('Goal deleted');
                             } catch (err) {
                                 toast.error('Failed to delete goal.');
@@ -256,49 +291,61 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
             </div>
         ));
     };
-    
+
     const deleteProject = async (id) => {
         // A confirmation toast for such a destructive action
         toast((t) => (
             <div className="flex flex-col gap-2">
                 <p>Delete project and all its tasks/events?</p>
                 <div className="flex gap-2 justify-end">
-                    <button 
+                    <button
                         className="bg-accent hover:opacity-80 text-white p-1 px-3 rounded text-sm"
                         onClick={async () => {
                             toast.dismiss(t.id);
                             try {
-                                // This is a simple deletion. A more complex app might need to cascade deletes.
-                                await db.projects.delete(id);
-                                // Also delete associated tasks and events
-                                const tasksToDelete = await db.tasks.where({ projectId: normalizeNullableId(id) }).primaryKeys();
-                                await db.tasks.bulkDelete(tasksToDelete);
-                                const eventsToDelete = await db.events.where({ projectId: normalizeNullableId(id) }).primaryKeys();
+                                await api.projects.remove(id);
+                                const tasksToDelete = await api.tasks.list({ projectId: normalizeNullableId(id) });
+                                if (tasksToDelete.length > 0) {
+                                    await api.tasks.bulkRemove(tasksToDelete.map((task) => task.id));
+                                }
+                                const eventsToDelete = await api.events.list({ projectId: normalizeNullableId(id) });
                                 // Cancel any pending notifications and clear flags for these events
-                                eventsToDelete.forEach(eid => {
-                                    cancelScheduledNotification(`event-finish-${eid}`);
-                                    clearEventNotificationFlags(eid);
+                                eventsToDelete.forEach((event) => {
+                                    cancelScheduledNotification(`event-finish-${event.id}`);
+                                    clearEventNotificationFlags(event.id);
                                 });
                                 // Delete time entries linked to these events
                                 if (eventsToDelete.length > 0) {
-                                    const teIds = await db.timeEntries.where('eventId').anyOf(eventsToDelete).primaryKeys();
-                                    if (teIds && teIds.length > 0) {
-                                        await db.timeEntries.bulkDelete(teIds);
+                                    const teIds = await api.timeEntries.list({
+                                        eventId_in: eventsToDelete.map((event) => event.id).join(','),
+                                    });
+                                    if (teIds.length > 0) {
+                                        await api.timeEntries.bulkRemove(teIds.map((entry) => entry.id));
                                     }
                                 }
-                                await db.events.bulkDelete(eventsToDelete);
+                                if (eventsToDelete.length > 0) {
+                                    await api.events.bulkRemove(eventsToDelete.map((event) => event.id));
+                                }
                                 // Delete time entries directly tied to this project (no eventId)
-                                const directTeIds = await db.timeEntries.where('projectId').equals(normalizeNullableId(id)).primaryKeys();
+                                const directTeIds = await api.timeEntries.list({ projectId: normalizeNullableId(id) });
                                 if (directTeIds.length > 0) {
-                                    await db.timeEntries.bulkDelete(directTeIds);
+                                    await api.timeEntries.bulkRemove(directTeIds.map((entry) => entry.id));
                                 }
                                 await deleteGoalsByProjectId(id);
                                 // Also delete associated folders
-                                const foldersToDelete = await db.folders.where({ projectId: normalizeNullableId(id) }).primaryKeys();
-                                await db.folders.bulkDelete(foldersToDelete);
-                                
+                                const foldersToDelete = await api.folders.list({ projectId: normalizeNullableId(id) });
+                                if (foldersToDelete.length > 0) {
+                                    await api.folders.bulkRemove(foldersToDelete.map((folder) => folder.id));
+                                }
+
+                                await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+                                await queryClient.invalidateQueries({ queryKey: queryKeys.goals });
+                                await queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+                                await queryClient.invalidateQueries({ queryKey: queryKeys.events });
+                                await queryClient.invalidateQueries({ queryKey: queryKeys.timeEntries });
+                                await queryClient.invalidateQueries({ queryKey: queryKeys.folders });
                                 toast.success("Project deleted.");
-                            } catch(error) {
+                            } catch (error) {
                                 console.error("Failed to delete project:", error);
                                 toast.error("Failed to delete project.");
                             }
@@ -306,7 +353,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                     >
                         Delete
                     </button>
-                    <button 
+                    <button
                         className="bg-secondary hover:bg-border text-foreground p-1 px-3 rounded text-sm"
                         onClick={() => toast.dismiss(t.id)}
                     >
@@ -381,20 +428,40 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
         if (!description.trim() || isNaN(hours) || hours <= 0 || isNaN(completed) || completed < 0) {
             return toast.error("Please fill in all required fields correctly.");
         }
-        
+
         const progress = Math.min(100, Math.round((completed / hours) * 100));
 
         try {
+            const originalCompleted = editingGoal.actualHours || 0;
+            const targetProjectId = normalizeNullableId(projectId);
+
             await updateGoalRepo(editingGoal.id, {
                 description: description.trim(),
                 targetHours: hours,
-                actualHours: completed,
                 deadline: deadline || null,
                 startDate: startDate || null,
                 scheduleDays: scheduleDays && scheduleDays.length > 0 ? scheduleDays : null,
-                progress,
-                projectId: normalizeNullableId(projectId),
+                projectId: targetProjectId,
             });
+
+            if (completed !== originalCompleted) {
+                const diffHours = completed - originalCompleted;
+                const seconds = Math.round(diffHours * 3600);
+                if (seconds !== 0) {
+                    await api.timeEntries.create({
+                        description: 'Manual adjustment',
+                        projectId: targetProjectId,
+                        goalId: editingGoal.id,
+                        startTime: new Date(),
+                        endTime: new Date(),
+                        duration: seconds,
+                    });
+                    await api.goals.recalculate(editingGoal.id);
+                    await queryClient.invalidateQueries({ queryKey: queryKeys.timeEntries });
+                }
+            }
+
+            await queryClient.invalidateQueries({ queryKey: queryKeys.goals });
             toast.success("Goal updated!");
             closeEditModal();
         } catch (error) {
@@ -430,10 +497,11 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
         if (!name.trim()) return toast.error("Project name cannot be empty.");
 
         try {
-            await db.projects.update(editingProject.id, {
+            await api.projects.update(editingProject.id, {
                 name: name.trim(),
                 color: color
             });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
             toast.success("Project updated!");
             closeProjectEditModal();
         } catch (error) {
@@ -481,22 +549,22 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
             <ul className="space-y-2">
                 {projects?.map(project => (
                     <li key={project.id} className="flex justify-between items-center p-2 rounded-md hover:bg-secondary group">
-                       <div className="flex items-center gap-3">
-                           <span className="w-3 h-3 rounded-full" style={{backgroundColor: project.color || '#64748b' }}></span>
-                           <span className="text-secondary-foreground">{project.name}</span>
-                       </div>
-                       <div className="flex gap-2 transition-opacity">
-                           <button aria-label={`Edit project ${project.name}`} onClick={() => openProjectEditModal(project)} className="text-blue-500">
-                               <Edit size={16} />
-                           </button>
-                           <button aria-label={`Delete project ${project.name}`} onClick={() => deleteProject(project.id)} className="text-accent">
-                               <Trash2 size={16} />
-                           </button>
-                       </div>
+                        <div className="flex items-center gap-3">
+                            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: project.color || '#64748b' }}></span>
+                            <span className="text-secondary-foreground">{project.name}</span>
+                        </div>
+                        <div className="flex gap-2 transition-opacity">
+                            <button aria-label={`Edit project ${project.name}`} onClick={() => openProjectEditModal(project)} className="text-blue-500">
+                                <Edit size={16} />
+                            </button>
+                            <button aria-label={`Delete project ${project.name}`} onClick={() => deleteProject(project.id)} className="text-accent">
+                                <Trash2 size={16} />
+                            </button>
+                        </div>
                     </li>
                 ))}
             </ul>
-            
+
             {/* Time Goal Section */}
             <div className="mt-8">
                 <h2 className="text-lg font-bold mb-4 text-card-foreground">Set Time Goal</h2>
@@ -509,16 +577,15 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                 onChange={(e) => setGoalDescription(e.target.value)}
                                 placeholder="Goal description *"
                                 required
-                                className={`p-2 w-full rounded-md bg-secondary border ${
-                                    errors.description ? 'border-accent' : 'border-border'
-                                } focus:ring-2 focus:ring-primary focus:outline-none`}
+                                className={`p-2 w-full rounded-md bg-secondary border ${errors.description ? 'border-accent' : 'border-border'
+                                    } focus:ring-2 focus:ring-primary focus:outline-none`}
                                 data-testid="goal-description-input"
                             />
                             {errors.description && (
                                 <p className="text-accent text-sm mt-1">{errors.description}</p>
                             )}
                         </div>
-                        
+
                         <div className="flex flex-wrap gap-3">
                             <div className="flex-1 min-w-[150px]">
                                 <input
@@ -529,16 +596,15 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                     min="0"
                                     step="any"
                                     required
-                                    className={`p-2 w-full rounded-md bg-secondary border ${
-                                        errors.targetHours ? 'border-accent' : 'border-border'
-                                    } focus:ring-2 focus:ring-primary focus:outline-none`}
+                                    className={`p-2 w-full rounded-md bg-secondary border ${errors.targetHours ? 'border-accent' : 'border-border'
+                                        } focus:ring-2 focus:ring-primary focus:outline-none`}
                                     data-testid="target-hours-input"
                                 />
                                 {errors.targetHours && (
                                     <p className="text-accent text-sm mt-1">{errors.targetHours}</p>
                                 )}
                             </div>
-                            
+
                             <div className="flex-1 min-w-[150px]">
                                 <input
                                     type="number"
@@ -547,16 +613,15 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                     placeholder="Hours completed"
                                     min="0"
                                     step="any"
-                                    className={`p-2 w-full rounded-md bg-secondary border ${
-                                        errors.hoursCompleted ? 'border-accent' : 'border-border'
-                                    } focus:ring-2 focus:ring-primary focus:outline-none`}
+                                    className={`p-2 w-full rounded-md bg-secondary border ${errors.hoursCompleted ? 'border-accent' : 'border-border'
+                                        } focus:ring-2 focus:ring-primary focus:outline-none`}
                                     data-testid="hours-completed-input"
                                 />
                                 {errors.hoursCompleted && (
                                     <p className="text-accent text-sm mt-1">{errors.hoursCompleted}</p>
                                 )}
                             </div>
-                            
+
                             <div className="flex-1 min-w-[150px]">
                                 <input
                                     type="date"
@@ -594,22 +659,20 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                 <button
                                     type="button"
                                     onClick={() => setScheduleDays(PRESET_WEEKDAYS)}
-                                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                                        JSON.stringify(scheduleDays) === JSON.stringify(PRESET_WEEKDAYS)
-                                            ? 'bg-primary text-primary-foreground border-primary'
-                                            : 'bg-secondary border-border text-muted-foreground hover:border-primary'
-                                    }`}
+                                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${JSON.stringify(scheduleDays) === JSON.stringify(PRESET_WEEKDAYS)
+                                        ? 'bg-primary text-primary-foreground border-primary'
+                                        : 'bg-secondary border-border text-muted-foreground hover:border-primary'
+                                        }`}
                                 >
                                     Weekdays
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setScheduleDays(PRESET_ALL_DAYS)}
-                                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                                        scheduleDays.length === 7
-                                            ? 'bg-primary text-primary-foreground border-primary'
-                                            : 'bg-secondary border-border text-muted-foreground hover:border-primary'
-                                    }`}
+                                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${scheduleDays.length === 7
+                                        ? 'bg-primary text-primary-foreground border-primary'
+                                        : 'bg-secondary border-border text-muted-foreground hover:border-primary'
+                                        }`}
                                 >
                                     Every Day
                                 </button>
@@ -620,11 +683,10 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                         key={value}
                                         type="button"
                                         onClick={() => toggleAddScheduleDay(value)}
-                                        className={`w-8 h-8 rounded-full text-xs font-medium border transition-colors ${
-                                            scheduleDays.includes(value)
-                                                ? 'bg-primary text-primary-foreground border-primary'
-                                                : 'bg-secondary border-border text-muted-foreground hover:border-primary'
-                                        }`}
+                                        className={`w-8 h-8 rounded-full text-xs font-medium border transition-colors ${scheduleDays.includes(value)
+                                            ? 'bg-primary text-primary-foreground border-primary'
+                                            : 'bg-secondary border-border text-muted-foreground hover:border-primary'
+                                            }`}
                                     >
                                         {label}
                                     </button>
@@ -634,11 +696,10 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
 
                         {/* Daily plan preview */}
                         {addFormPlanPreview && (
-                            <div className={`text-xs px-3 py-2 rounded-md border flex items-center gap-2 ${
-                                addFormPlanPreview.isOnTrack
-                                    ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
-                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
-                            }`}>
+                            <div className={`text-xs px-3 py-2 rounded-md border flex items-center gap-2 ${addFormPlanPreview.isOnTrack
+                                ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
+                                : 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                                }`}>
                                 <span>
                                     {addFormPlanPreview.totalAvailableDays} available days &middot;{' '}
                                     {addFormPlanPreview.dailyHoursRequired !== null
@@ -648,7 +709,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                 </span>
                             </div>
                         )}
-                        
+
                         <select
                             name="projectId"
                             value={goalProjectId}
@@ -660,7 +721,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                 <option key={p.id} value={p.id}>{p.name}</option>
                             ))}
                         </select>
-                        
+
                         <button
                             type="submit"
                             className="bg-primary hover:opacity-90 text-primary-foreground font-bold py-2 px-4 rounded w-full transition-colors duration-200"
@@ -670,7 +731,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                         </button>
                     </div>
                 </form>
-                
+
                 {/* Goals List */}
                 {goals && goals.length > 0 && (
                     <div className="mt-6">
@@ -685,26 +746,48 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                                 <p className="text-sm text-secondary-foreground mt-1">
                                                     {goal.targetHours} hours {goal.deadline ? `by ${new Date(goal.deadline).toLocaleDateString()}` : '(No deadline)'}
                                                 </p>
-                                                <p className="text-sm mt-1">
-                                                    Completed: {(goal.actualHours || 0).toFixed(1)}/{goal.targetHours} hours
-                                                </p>
+                                                <div className="flex items-center gap-1 mt-1 text-sm">
+                                                    <span>Completed:</span>
+                                                    <input
+                                                        key={`goal-actual-${goal.id}-${(goal.actualHours || 0).toFixed(4)}`}
+                                                        type="number"
+                                                        min="0"
+                                                        step="any"
+                                                        defaultValue={goal.actualHours ? parseFloat(goal.actualHours.toFixed(2)) : 0}
+                                                        onBlur={(e) => {
+                                                            const val = parseFloat(e.target.value);
+                                                            const currentVal = goal.actualHours ? parseFloat(goal.actualHours.toFixed(2)) : 0;
+                                                            if (!isNaN(val) && val >= 0 && val !== currentVal) {
+                                                                handleSetTotalHours(goal, val);
+                                                            } else if (isNaN(val) || val < 0) {
+                                                                e.target.value = currentVal;
+                                                            }
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') e.target.blur();
+                                                        }}
+                                                        title="Click to edit total time spent"
+                                                        className="w-16 p-0 bg-transparent font-medium border-b border-dashed border-primary/50 text-center hover:bg-secondary focus:bg-secondary focus:border-solid focus:outline-none transition-colors"
+                                                    />
+                                                    <span>/ {goal.targetHours} hours</span>
+                                                </div>
                                             </div>
                                             <div className="flex items-center gap-1 ml-2">
-                                               <button onClick={() => openEditModal(goal)} className="text-blue-500 opacity-80 hover:opacity-100 transition-opacity p-1">
-                                                   <Edit size={14} />
-                                               </button>
-                                               <button onClick={() => deleteGoal(goal.id)} className="text-red-500 hover:text-red-700 transition-colors p-1">
-                                                   <Trash2 size={14} />
-                                               </button>
-                                               <button
-                                                   onClick={() => onStartGoalTimer(goal)}
-                                                   className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 rounded flex items-center gap-1"
-                                                   data-testid={`start-timer-button-${goal.id}`}
-                                               >
-                                                   <Play size={12} />
-                                                   Start
-                                               </button>
-                                           </div>
+                                                <button onClick={() => openEditModal(goal)} className="text-blue-500 opacity-80 hover:opacity-100 transition-opacity p-1">
+                                                    <Edit size={14} />
+                                                </button>
+                                                <button onClick={() => deleteGoal(goal.id)} className="text-red-500 hover:text-red-700 transition-colors p-1">
+                                                    <Trash2 size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => onStartGoalTimer(goal)}
+                                                    className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 rounded flex items-center gap-1"
+                                                    data-testid={`start-timer-button-${goal.id}`}
+                                                >
+                                                    <Play size={12} />
+                                                    Start
+                                                </button>
+                                            </div>
                                         </div>
                                         <div className="mt-2">
                                             <div className="flex justify-between text-xs mb-1">
@@ -724,7 +807,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                                 />
                                             </div>
                                         </div>
-                                        
+
                                         {/* Schedule info */}
                                         {(() => {
                                             const plan = calculateDailyPlan(goal);
@@ -737,11 +820,10 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                                             {DAY_SELECTOR.map(({ label, value }) => (
                                                                 <span
                                                                     key={value}
-                                                                    className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                                                                        goal.scheduleDays.includes(value)
-                                                                            ? 'bg-primary/20 text-primary'
-                                                                            : 'bg-muted text-muted-foreground opacity-40'
-                                                                    }`}
+                                                                    className={`text-xs px-1.5 py-0.5 rounded font-medium ${goal.scheduleDays.includes(value)
+                                                                        ? 'bg-primary/20 text-primary'
+                                                                        : 'bg-muted text-muted-foreground opacity-40'
+                                                                        }`}
                                                                 >
                                                                     {label}
                                                                 </span>
@@ -749,11 +831,10 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                                         </div>
                                                     )}
                                                     {plan && (
-                                                        <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${
-                                                            plan.isOnTrack
-                                                                ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                                                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                                        }`}>
+                                                        <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${plan.isOnTrack
+                                                            ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                                                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                                            }`}>
                                                             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${plan.isOnTrack ? 'bg-green-500' : 'bg-amber-500'}`} />
                                                             {plan.dailyHoursRequired !== null ? (
                                                                 <>
@@ -827,7 +908,7 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                         <button
                                             type="button"
                                             key={color}
-                                            onClick={() => setEditProjectFormData(prev => ({...prev, color}))}
+                                            onClick={() => setEditProjectFormData(prev => ({ ...prev, color }))}
                                             className={`w-6 h-6 rounded-full transition-transform transform hover:scale-110 ${editProjectFormData.color === color ? 'ring-2 ring-primary ring-offset-2 ring-offset-card' : ''}`}
                                             style={{ backgroundColor: color }}
                                             aria-label={`Select color ${color}`}
@@ -874,27 +955,33 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                 ))}
                             </select>
                             <div className="flex gap-4">
-                                <input
-                                    type="number"
-                                    name="targetHours"
-                                    value={editFormData.targetHours}
-                                    onChange={handleEditFormChange}
-                                    placeholder="Target hours"
-                                    min="0"
-                                    step="any"
-                                    required
-                                    className="p-2 w-full rounded-md bg-secondary border border-border"
-                                />
-                                <input
-                                    type="number"
-                                    name="actualHours"
-                                    value={editFormData.actualHours}
-                                    onChange={handleEditFormChange}
-                                    placeholder="Hours completed"
-                                    min="0"
-                                    step="any"
-                                    className="p-2 w-full rounded-md bg-secondary border border-border"
-                                />
+                                <div className="flex-1">
+                                    <input
+                                        type="number"
+                                        name="targetHours"
+                                        value={editFormData.targetHours}
+                                        onChange={handleEditFormChange}
+                                        placeholder="Target hours"
+                                        min="0"
+                                        step="any"
+                                        required
+                                        className="p-2 w-full rounded-md bg-secondary border border-border"
+                                    />
+                                    <span className="text-xs text-muted-foreground ml-1">Target Hours</span>
+                                </div>
+                                <div className="flex-1">
+                                    <input
+                                        type="number"
+                                        name="actualHours"
+                                        value={editFormData.actualHours}
+                                        onChange={handleEditFormChange}
+                                        placeholder="Hours completed"
+                                        min="0"
+                                        step="any"
+                                        className="p-2 w-full rounded-md bg-secondary border border-border"
+                                    />
+                                    <span className="text-xs text-muted-foreground ml-1">Time Spent (Hours)</span>
+                                </div>
                             </div>
                             <div className="flex gap-4">
                                 <div className="flex-1">
@@ -926,22 +1013,20 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                     <button
                                         type="button"
                                         onClick={() => setEditFormData(prev => ({ ...prev, scheduleDays: PRESET_WEEKDAYS }))}
-                                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                                            JSON.stringify(editFormData.scheduleDays) === JSON.stringify(PRESET_WEEKDAYS)
-                                                ? 'bg-primary text-primary-foreground border-primary'
-                                                : 'bg-secondary border-border text-muted-foreground hover:border-primary'
-                                        }`}
+                                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${JSON.stringify(editFormData.scheduleDays) === JSON.stringify(PRESET_WEEKDAYS)
+                                            ? 'bg-primary text-primary-foreground border-primary'
+                                            : 'bg-secondary border-border text-muted-foreground hover:border-primary'
+                                            }`}
                                     >
                                         Weekdays
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => setEditFormData(prev => ({ ...prev, scheduleDays: PRESET_ALL_DAYS }))}
-                                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                                            editFormData.scheduleDays.length === 7
-                                                ? 'bg-primary text-primary-foreground border-primary'
-                                                : 'bg-secondary border-border text-muted-foreground hover:border-primary'
-                                        }`}
+                                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${editFormData.scheduleDays.length === 7
+                                            ? 'bg-primary text-primary-foreground border-primary'
+                                            : 'bg-secondary border-border text-muted-foreground hover:border-primary'
+                                            }`}
                                     >
                                         Every Day
                                     </button>
@@ -952,11 +1037,10 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
                                             key={value}
                                             type="button"
                                             onClick={() => toggleEditScheduleDay(value)}
-                                            className={`w-8 h-8 rounded-full text-xs font-medium border transition-colors ${
-                                                editFormData.scheduleDays.includes(value)
-                                                    ? 'bg-primary text-primary-foreground border-primary'
-                                                    : 'bg-secondary border-border text-muted-foreground hover:border-primary'
-                                            }`}
+                                            className={`w-8 h-8 rounded-full text-xs font-medium border transition-colors ${editFormData.scheduleDays.includes(value)
+                                                ? 'bg-primary text-primary-foreground border-primary'
+                                                : 'bg-secondary border-border text-muted-foreground hover:border-primary'
+                                                }`}
                                         >
                                             {label}
                                         </button>
@@ -966,11 +1050,10 @@ export const ProjectManager = ({ onStartGoalTimer }) => {
 
                             {/* Daily plan preview */}
                             {editFormPlanPreview && (
-                                <div className={`text-xs px-3 py-2 rounded-md border flex items-center gap-2 ${
-                                    editFormPlanPreview.isOnTrack
-                                        ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
-                                        : 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
-                                }`}>
+                                <div className={`text-xs px-3 py-2 rounded-md border flex items-center gap-2 ${editFormPlanPreview.isOnTrack
+                                    ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
+                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                                    }`}>
                                     <span>
                                         {editFormPlanPreview.totalAvailableDays} available days &middot;{' '}
                                         {editFormPlanPreview.dailyHoursRequired !== null

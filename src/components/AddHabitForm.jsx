@@ -1,22 +1,17 @@
-import { useState, useEffect } from 'react';
-import { db } from '../db/db';
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { RRule } from 'rrule';
 import { Plus } from 'lucide-react';
 import { normalizeNullableId } from '../db/id-utils';
+import { api } from '../api/apiClient';
+import { useProjects } from '../hooks/useAppData';
 
 export const AddHabitForm = ({ onHabitAdded }) => {
+    const queryClient = useQueryClient();
     const [text, setText] = useState('');
-    const [projects, setProjects] = useState([]);
+    const { data: projects = [] } = useProjects();
     const [selectedProjectId, setSelectedProjectId] = useState('');
-
-    useEffect(() => {
-        const fetchProjects = async () => {
-            const allProjects = await db.projects.toArray();
-            setProjects(allProjects);
-        };
-        fetchProjects();
-    }, []);
 
     const addHabit = async (e) => {
         e.preventDefault();
@@ -32,7 +27,7 @@ export const AddHabitForm = ({ onHabitAdded }) => {
         const rruleString = rule.toString();
 
         try {
-            const newTaskId = await db.tasks.add({
+            const task = await api.tasks.create({
                 text: text.trim(),
                 completed: false,
                 createdAt: new Date(),
@@ -44,19 +39,19 @@ export const AddHabitForm = ({ onHabitAdded }) => {
                 templateId: null, // Habit templates are not instances
             });
 
-            await db.habits.add({
-                taskId: newTaskId,
+            await api.habits.create({
+                taskId: task.id,
                 name: text.trim(),
                 startDate: new Date(),
                 streak: 0,
                 bestStreak: 0,
                 lastCompletionDate: null,
                 streakFreezes: 0,
-                streakFriezes: 0,
                 lastStreakMilestone: 0,
                 projectId: projectId
             });
-            
+
+            await queryClient.invalidateQueries();
             setText('');
             setSelectedProjectId('');
             toast.success(`Habit '${text.trim()}' added!`);
