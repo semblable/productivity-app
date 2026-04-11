@@ -1,0 +1,75 @@
+{
+  "name": "my-local-planner-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^8.0.0",
+    "@tailwindcss/typography": "^0.5.16",
+    "@tanstack/react-query": "^5.90.21",
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^14.2.1",
+    "@testing-library/user-event": "^14.5.2",
+    "better-sqlite3": "^12.6.2",
+    "chart.js": "^4.4.1",
+    "cors": "^2.8.6",
+    "date-fns": "^2.30.0",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "googleapis": "^171.4.0",
+    "http-proxy-middleware": "^3.0.5",
+    "lodash.debounce": "^4.0.8",
+    "lucide-react": "^0.323.0",
+    "moment": "^2.30.1",
+    "react": "^18.2.0",
+    "react-big-calendar": "^1.10.1",
+    "react-calendar-heatmap": "^1.9.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "react-markdown": "^8.0.7",
+    "react-router-dom": "^6.26.2",
+    "react-scripts": "5.0.1",
+    "react-tooltip": "^5.26.3",
+    "remark-gfm": "^3.0.1",
+    "rrule": "^2.8.1",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run start:client\"",
+    "start:client": "react-scripts start",
+    "server": "node server/index.js",
+    "build": "react-scripts build",
+    "start:prod": "serve -s build -l 3000",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "startup:install": "powershell -ExecutionPolicy Bypass -NoProfile -File ./scripts/enable-startup.ps1",
+    "startup:remove": "powershell -ExecutionPolicy Bypass -NoProfile -File ./scripts/disable-startup.ps1"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.0",
+    "postcss": "^8.5.4",
+    "serve": "^14.2.4",
+    "supertest": "^7.2.2",
+    "tailwindcss": "^3.4.17"
+  }
+}

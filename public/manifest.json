@@ -1,0 +1,71 @@
+{
+  "short_name": "Momentum Planner",
+  "name": "Momentum Planner | Tasks, Habits, Time, Goals, and Notes",
+  "description": "Complete productivity suite with task management, habit tracking, time tracking, calendar, notes, and AI-powered features for personal and team productivity.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable any"
+    }
+  ],
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "categories": ["productivity", "business", "utilities"],
+  "lang": "en",
+  "scope": "/",
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Add Task",
+      "short_name": "New Task",
+      "description": "Quickly add a new task",
+      "url": "/todo",
+      "icons": [
+        {
+          "src": "favicon.ico",
+          "sizes": "64x64"
+        }
+      ]
+    },
+    {
+      "name": "Time Tracker",
+      "short_name": "Timer",
+      "description": "Start time tracking",
+      "url": "/tracker",
+      "icons": [
+        {
+          "src": "favicon.ico",
+          "sizes": "64x64"
+        }
+      ]
+    },
+    {
+      "name": "Today's Focus",
+      "short_name": "Focus",
+      "description": "View today's priority tasks",
+      "url": "/today",
+      "icons": [
+        {
+          "src": "favicon.ico",
+          "sizes": "64x64"
+        }
+      ]
+    }
+  ]
+}

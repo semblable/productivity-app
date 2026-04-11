@@ -1,0 +1,71 @@
+/* react-calendar-heatmap styles */
+
+.react-calendar-heatmap .color-empty {
+  fill: hsl(var(--muted) / 0.5);
+}
+
+.react-calendar-heatmap .color-scale-1 {
+  fill: hsl(var(--primary) / 0.4);
+}
+.react-calendar-heatmap .color-scale-2 {
+  fill: hsl(var(--primary) / 0.6);
+}
+.react-calendar-heatmap .color-scale-3 {
+  fill: hsl(var(--primary) / 0.8);
+}
+.react-calendar-heatmap .color-scale-4 {
+  fill: hsl(var(--primary) / 1.0);
+}
+
+/* Tooltip styles */
+.react-calendar-heatmap-tooltip {
+    background-color: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+    box-shadow: var(--shadow-lg);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    z-index: 20; /* Ensure it appears above other elements */
+}
+
+.react-calendar-heatmap text {
+    font-size: 8px;
+    fill: hsl(var(--muted-foreground));
+}
+
+.react-calendar-heatmap rect:hover {
+    stroke: hsl(var(--primary) / 0.5);
+    stroke-width: 1px;
+}
+
+.habit-calendar-container .react-calendar-heatmap .color-empty {
+  fill: hsl(var(--muted) / 0.25);
+  shape-rendering: geometricPrecision;
+  rx: 2;
+  ry: 2;
+}
+
+.habit-calendar-container .react-calendar-heatmap .color-filled {
+  fill: hsl(142.1 76.2% 41.2%); /* This is a green color */
+  shape-rendering: geometricPrecision;
+  rx: 2;
+  ry: 2;
+}
+
+/* Highlight for today's date cell */
+.habit-calendar-container .react-calendar-heatmap .is-today {
+    stroke: hsl(var(--primary));
+    stroke-width: 1.5px;
+}
+
+.habit-calendar-container .react-calendar-heatmap text {
+    font-size: 9px;
+    fill: hsl(var(--muted-foreground));
+}
+
+.habit-calendar-container .react-calendar-heatmap rect:hover {
+    stroke: hsl(var(--foreground) / 0.5);
+    stroke-width: 1px;
+} 

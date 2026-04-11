@@ -1,0 +1,83 @@
+/* 
+  Custom styles for react-big-calendar to integrate with the app's theme.
+*/
+
+.rbc-calendar {
+  color: hsl(var(--foreground));
+  --rbc-border-color: hsl(var(--border));
+  --rbc-header-bg: hsl(var(--secondary));
+  --rbc-off-range-bg: hsl(var(--background));
+  --rbc-today-bg: rgba(59, 130, 246, 0.1); /* A subtle blue for today */
+  --rbc-current-time-color: hsl(var(--primary));
+  --rbc-toolbar-button-hover-bg: hsl(var(--border));
+}
+
+.dark .rbc-calendar {
+  --rbc-today-bg: rgba(74, 144, 226, 0.15); /* Slightly more visible blue */
+  --rbc-header-bg: hsl(var(--secondary));
+  --rbc-border-color: hsl(var(--border));
+}
+
+.dark .rbc-toolbar button {
+  background-color: hsl(var(--secondary)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* General overrides */
+.rbc-toolbar {
+  margin-bottom: 1rem;
+}
+.rbc-toolbar button {
+  border: 1px solid hsl(var(--border)) !important;
+  background-color: hsl(var(--secondary)) !important;
+  color: hsl(var(--foreground)) !important;
+  padding: 0.375rem 0.75rem;
+  transition: background-color 0.2s;
+}
+.rbc-toolbar button:hover,
+.rbc-toolbar button:focus {
+  background-color: var(--rbc-toolbar-button-hover-bg) !important;
+  border-color: hsl(var(--border)) !important;
+  box-shadow: none !important;
+}
+.rbc-btn-group > button:first-child {
+  border-top-left-radius: var(--radius);
+  border-bottom-left-radius: var(--radius);
+}
+.rbc-btn-group > button:last-child {
+  border-top-right-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+}
+.rbc-toolbar button.rbc-active {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  border-color: var(--primary) !important;
+  box-shadow: none !important;
+}
+
+.rbc-header {
+  border-bottom: 1px solid var(--rbc-border-color);
+  padding: 0.5rem 0;
+  font-weight: 600;
+}
+
+.rbc-month-view, .rbc-time-view, .rbc-day-view, .rbc-agenda-view {
+  border: 1px solid var(--rbc-border-color);
+  border-radius: var(--radius);
+}
+
+.rbc-time-header, .rbc-time-content {
+  border-left: none;
+}
+
+.rbc-day-slot .rbc-time-slot {
+  border-top: 1px solid hsl(var(--border));
+}
+
+.rbc-day-slot .rbc-event, .rbc-agenda-table .rbc-event {
+  border: none !important;
+}
+
+.today-cell {
+  background-color: var(--rbc-today-bg);
+} 
