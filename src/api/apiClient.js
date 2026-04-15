@@ -111,6 +111,12 @@ export const api = {
       body: JSON.stringify({}),
     }),
   health: () => request('/health'),
+  discordTimer: {
+    get: () => request('/discord-timer'),
+    start: (timerData) => request('/discord-timer/start', { method: 'POST', body: JSON.stringify(timerData) }),
+    stop: () => request('/discord-timer/stop', { method: 'POST' }),
+    clear: () => request('/discord-timer/clear', { method: 'POST' }),
+  },
   gcal: {
     getStatus: () => request('/gcal/status'),
     getAuthUrl: () => request('/gcal/auth-url'),

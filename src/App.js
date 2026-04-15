@@ -303,6 +303,46 @@ function AppLayout() {
         }
     }, [appState.activeTimer]);
 
+    // --- Discord timer sync: poll server for active Discord timer ---
+    useEffect(() => {
+        let interval;
+        const poll = async () => {
+            try {
+                const data = await api.discordTimer.get();
+                const current = appStateRef.current.activeTimer;
+
+                if (data.active) {
+                    // Show Discord timer only if no local timer is running
+                    if (!current) {
+                        setState({
+                            activeTimer: {
+                                description: data.description,
+                                projectId: data.projectId,
+                                goalId: data.goalId,
+                                startTime: data.startTime,
+                                origin: 'discord',
+                                status: 'running',
+                                accumulatedSeconds: 0,
+                                segmentStart: data.startTime,
+                                sessionId: data.sessionId,
+                            },
+                        });
+                    }
+                } else if (current?.origin === 'discord') {
+                    // Discord timer was stopped remotely — clear it from UI
+                    setState({ activeTimer: null });
+                    queryClient.invalidateQueries();
+                }
+            } catch {
+                // Server unreachable — ignore
+            }
+        };
+
+        poll();
+        interval = setInterval(poll, 5000);
+        return () => clearInterval(interval);
+    }, [setState, queryClient]);
+
     // --- Global Keyboard Shortcuts ---
     useEffect(() => {
         const sequenceRef = { key: null, time: 0 };

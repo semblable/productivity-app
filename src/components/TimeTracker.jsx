@@ -106,7 +106,20 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
         if ((timerData?.eventId ?? trackedEventId) && typeof onEventConsumed === 'function') {
             onEventConsumed();
         }
-    }, [description, projectId, goalId, projects, activeGoalId, setActiveTimer, trackedEventId, onEventConsumed, clearActiveGoalId]);
+
+        // Sync browser timer to Firebase so Discord bot knows a timer is active
+        const project = projects?.find(p => String(p.id) === String(pId));
+        const goal = resolvedGoalId ? goals?.find(g => String(g.id) === String(resolvedGoalId)) : null;
+        api.discordTimer.start({
+            description: newTimer.description,
+            projectId: newTimer.projectId,
+            projectName: project?.name || null,
+            goalId: resolvedGoalId || null,
+            goalName: goal?.description || null,
+            startTime: startedAt,
+            sessionId: newTimer.sessionId,
+        }).catch(() => {}); // Fire-and-forget; server may be offline
+    }, [description, projectId, goalId, projects, goals, activeGoalId, setActiveTimer, trackedEventId, onEventConsumed, clearActiveGoalId]);
 
     // Expose handleStartTimer to parent component via ref
     useImperativeHandle(ref, () => ({
@@ -310,6 +323,21 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             return;
         }
 
+        if (activeTimer.origin === 'discord') {
+            try {
+                await api.discordTimer.stop();
+                await queryClient.invalidateQueries();
+                toast.success("Discord timer stopped!");
+                setActiveTimer(null);
+            } catch (error) {
+                console.error("Failed to stop Discord timer:", error);
+                toast.error("Failed to stop Discord timer.");
+            } finally {
+                stopInFlightRef.current = false;
+            }
+            return;
+        }
+
         try {
             const endTime = Date.now();
             const finalDuration = getTimerDuration(activeTimer);
@@ -372,6 +400,9 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
             }
 
             setActiveTimer(null);
+
+            // Clear Firebase timer state so Discord bot sees no active timer
+            api.discordTimer.clear().catch(() => {});
         } catch (error) {
             console.error("Failed to save time entry:", error);
             toast.error("Failed to save time entry.");
@@ -524,12 +555,14 @@ export const TimeTracker = forwardRef(({ activeTimer, setActiveTimer, activeGoal
                 </div>
                 {activeTimer ? (
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={handlePauseResumeTimer}
-                            className="bg-secondary hover:bg-border text-foreground p-2 px-4 rounded-md"
-                        >
-                            {isPaused ? 'Resume' : 'Pause'}
-                        </button>
+                        {activeTimer.origin !== 'discord' && (
+                            <button
+                                onClick={handlePauseResumeTimer}
+                                className="bg-secondary hover:bg-border text-foreground p-2 px-4 rounded-md"
+                            >
+                                {isPaused ? 'Resume' : 'Pause'}
+                            </button>
+                        )}
                         <button onClick={handleStopTimer} className="bg-destructive hover:opacity-90 text-destructive-foreground p-2 px-6 rounded-md">
                             Stop
                         </button>

@@ -19,6 +19,7 @@ const habitCompletionsRouter = require('./routes/habit_completions');
 const ivyLeeRouter = require('./routes/ivyLee');
 const gcalRouter = require('./routes/gcal');
 const { startPeriodicSync, isConfigured: gcalConfigured } = require('./gcal-sync');
+const { startSync: startDiscordSync, isConfigured: discordConfigured, createRouter: createDiscordRouter } = require('./discord-sync');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,6 +39,7 @@ app.use('/api/habits', habitsRouter);
 app.use('/api/habit_completions', habitCompletionsRouter);
 app.use('/api/ivyLee', ivyLeeRouter);
 app.use('/api/gcal', gcalRouter);
+app.use('/api/discord-timer', createDiscordRouter());
 
 const buildDir = path.join(__dirname, '..', 'build');
 if (fs.existsSync(buildDir)) {
@@ -57,5 +59,10 @@ app.listen(PORT, () => {
   // Start Google Calendar periodic sync if configured
   if (gcalConfigured()) {
     startPeriodicSync();
+  }
+
+  // Start Discord timer sync if configured
+  if (discordConfigured()) {
+    startDiscordSync();
   }
 });
